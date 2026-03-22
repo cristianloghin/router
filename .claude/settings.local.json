@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(npm info:*)",
+      "Bash(npx vitest:*)",
+      "Bash(find /Users/cristianloghin/Documents/_Projects/router/node_modules/@mikrostack/chbus -name *.d.ts)",
+      "Bash(xargs cat:*)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
