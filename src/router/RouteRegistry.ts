@@ -69,7 +69,7 @@ export class RouteRegistry {
     }
 
     // Cycle detection in development
-    if (process.env.NODE_ENV !== "production") {
+    if (true) {
       this.detectCycles();
     }
   }

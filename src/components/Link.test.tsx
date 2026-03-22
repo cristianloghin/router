@@ -8,8 +8,10 @@ import { defineRoutes } from "../router/RouteRegistry";
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
-const Stub = ({ outlet }: { params: Record<string, never>; outlet: React.ReactNode }) => <div>{outlet}</div>;
-const CameraStub = ({ outlet }: { params: { id: string }; outlet: React.ReactNode }) => <div>{outlet}</div>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Stub: React.ComponentType<any> = ({ outlet }) => <div>{outlet}</div>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CameraStub: React.ComponentType<any> = ({ outlet }) => <div>{outlet}</div>;
 
 const routes = defineRoutes({
   "/":           { component: Stub },

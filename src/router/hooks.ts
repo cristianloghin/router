@@ -259,7 +259,7 @@ export function usePrompt(message: string, when: boolean): void {
 
   useEffect(() => {
     if (!when) {
-      store.onPrompt = undefined;
+      delete store.onPrompt;
       return;
     }
 
@@ -271,7 +271,7 @@ export function usePrompt(message: string, when: boolean): void {
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
-      store.onPrompt = undefined;
+      delete store.onPrompt;
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [message, when, store]);

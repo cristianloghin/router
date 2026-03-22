@@ -104,13 +104,12 @@ export function RouteBoundary({
 }: RouteBoundaryProps): React.ReactElement {
   const loadingFallback = resolveLoading(loading ?? defaultLoading);
 
+  const errorBoundaryProps: ErrorBoundaryProps = { path, onNotFound, children: null };
+  if (error !== undefined) errorBoundaryProps.error = error;
+  if (defaultError !== undefined) errorBoundaryProps.defaultError = defaultError;
+
   return (
-    <RouteErrorBoundary
-      path={path}
-      error={error}
-      defaultError={defaultError}
-      onNotFound={onNotFound}
-    >
+    <RouteErrorBoundary {...errorBoundaryProps}>
       <Suspense fallback={loadingFallback}>{children}</Suspense>
     </RouteErrorBoundary>
   );

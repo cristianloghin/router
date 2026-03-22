@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { serialize, deserialize, paramsToRecord, recordToParams } from "./params";
 
+// ─── Phase 7: Edge cases ──────────────────────────────────────────────────────
+
 // ─── serialize ───────────────────────────────────────────────────────────────
 
 describe("serialize", () => {
@@ -164,5 +166,88 @@ describe("recordToParams", () => {
     const sp = recordToParams(schema, values);
     const back = paramsToRecord(schema, sp);
     expect(back).toEqual(values);
+  });
+});
+
+// ─── Schema-driven deserialization ────────────────────────────────────────────
+
+describe("paramsToRecord: schema-driven deserialization", () => {
+  it("round-trips all six types correctly", () => {
+    const schema = {
+      str: "string" as const,
+      num: "number" as const,
+      bool: "boolean" as const,
+      strs: "string[]" as const,
+      nums: "number[]" as const,
+    };
+    const values = { str: "hello", num: 42, bool: true, strs: ["a", "b"], nums: [1, 2] };
+    const sp = recordToParams(schema, values);
+    const back = paramsToRecord(schema, sp);
+    expect(back).toEqual(values);
+  });
+
+  it("missing key with no default: field is absent from result object", () => {
+    const sp = new URLSearchParams("");
+    const result = paramsToRecord({ page: "number" }, sp);
+    expect("page" in result).toBe(false);
+  });
+
+  it("extra key not in schema is not included in result", () => {
+    const sp = new URLSearchParams("extra=ignored&page=1");
+    const result = paramsToRecord({ page: "number" }, sp);
+    expect("extra" in result).toBe(false);
+    expect(result["page"]).toBe(1);
+  });
+});
+
+// ─── Array serialization edge cases ───────────────────────────────────────────
+
+describe("recordToParams: array edge cases", () => {
+  it("empty string[] array produces no keys", () => {
+    const sp = recordToParams({ tags: "string[]" }, { tags: [] });
+    expect(sp.has("tags")).toBe(false);
+  });
+
+  it("single-element string[] array produces one occurrence", () => {
+    const sp = recordToParams({ tags: "string[]" }, { tags: ["a"] });
+    expect(sp.getAll("tags")).toEqual(["a"]);
+  });
+
+  it("multi-element string[] array produces repeated keys", () => {
+    const sp = recordToParams({ tags: "string[]" }, { tags: ["a", "b"] });
+    expect(sp.getAll("tags")).toEqual(["a", "b"]);
+  });
+});
+
+// ─── Number precision ──────────────────────────────────────────────────────────
+
+describe("deserialize: number precision", () => {
+  it("large integers survive round-trip", () => {
+    const v = serialize(Number.MAX_SAFE_INTEGER, "number");
+    expect(deserialize(v as string, "number")).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("returns NaN for non-numeric string input (callers are responsible for validation)", () => {
+    expect(deserialize("abc", "number")).toBeNaN();
+  });
+});
+
+// ─── Boolean strictness ───────────────────────────────────────────────────────
+
+describe("deserialize: boolean strictness", () => {
+  it("deserialize('1', 'boolean') → false (only 'true' maps to true)", () => {
+    expect(deserialize("1", "boolean")).toBe(false);
+  });
+
+  it("deserialize('TRUE', 'boolean') → false (case-sensitive)", () => {
+    expect(deserialize("TRUE", "boolean")).toBe(false);
+  });
+
+  it("deserialize('false', 'boolean') → false", () => {
+    expect(deserialize("false", "boolean")).toBe(false);
+  });
+
+  it("deserialize('true', 'boolean') → true", () => {
+    expect(deserialize("true", "boolean")).toBe(true);
   });
 });

@@ -46,7 +46,7 @@ export interface RouteDefinition<TPath extends string = string> {
 }
 
 // Raw input map used by defineRoutes (keys are typed as string literals by inference).
-export type RawRouteMap = { [TPath extends string]: RouteDefinition<TPath> };
+export type RawRouteMap = Record<string, RouteDefinition<string>>;
 
 // The frozen validated route map.
 export type RouteMap<TMap extends RawRouteMap = RawRouteMap> = Readonly<TMap>;

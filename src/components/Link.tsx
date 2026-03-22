@@ -94,7 +94,7 @@ export function Link(props: LinkProps): React.ReactElement {
     // Pass through modifier-key clicks (new tab, etc.)
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    store.navigate(href, { replace, state });
+    store.navigate(href, { replace, ...(state !== undefined ? { state } : {}) });
   };
 
   return (

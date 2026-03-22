@@ -124,11 +124,11 @@ export function RouterView({
       <RouteBoundary
         key={capturedKey}
         path={capturedKey}
-        loading={def.loading}
-        defaultLoading={defaultLoading}
-        error={def.error}
-        defaultError={defaultError}
         onNotFound={() => { setNotFoundPath(path); }}
+        {...(def.loading !== undefined ? { loading: def.loading } : {})}
+        {...(defaultLoading !== undefined ? { defaultLoading } : {})}
+        {...(def.error !== undefined ? { error: def.error } : {})}
+        {...(defaultError !== undefined ? { defaultError } : {})}
       >
         {element}
       </RouteBoundary>

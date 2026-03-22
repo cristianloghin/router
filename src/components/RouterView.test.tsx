@@ -12,22 +12,19 @@ import { notFound } from "../utils/notFound";
 
 // ─── Stub components ──────────────────────────────────────────────────────────
 
-const Dashboard = ({ outlet }: { params: Record<string, never>; outlet: React.ReactNode }) => (
-  <div>Dashboard{outlet}</div>
-);
-const Settings = ({ outlet }: { params: Record<string, never>; outlet: React.ReactNode }) => (
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Dashboard: React.ComponentType<any> = ({ outlet }) => <div>Dashboard{outlet}</div>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Settings: React.ComponentType<any> = ({ outlet }) => (
   <div>Settings<div data-testid="outlet">{outlet}</div></div>
 );
-const Profile = ({ outlet }: { params: Record<string, never>; outlet: React.ReactNode }) => (
-  <div>Profile{outlet}</div>
-);
-const Security = ({ outlet }: { params: Record<string, never>; outlet: React.ReactNode }) => (
-  <div>Security{outlet}</div>
-);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Profile: React.ComponentType<any> = ({ outlet }) => <div>Profile{outlet}</div>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Security: React.ComponentType<any> = ({ outlet }) => <div>Security{outlet}</div>;
 const SettingsIndex = () => <div>SettingsIndex</div>;
-const CameraDetail = ({ params }: { params: { id: string }; outlet: React.ReactNode }) => (
-  <div>Camera:{params.id}</div>
-);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CameraDetail: React.ComponentType<any> = ({ params }) => <div>Camera:{params.id}</div>;
 const NotFoundRoute = ({ path }: { path: string }) => <div>404:{path}</div>;
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -174,7 +171,8 @@ describe("RouterView: notFound() sentinel", () => {
 
 describe("RouterView: scroll restoration", () => {
   let store: RouterStore;
-  let scrollSpy: ReturnType<typeof vi.spyOn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let scrollSpy: any;
 
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
