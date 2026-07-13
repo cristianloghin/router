@@ -708,3 +708,43 @@ describe("AppProvider: error boundary resets on route change", () => {
     spy.mockRestore();
   });
 });
+
+// ─── router-only usage ────────────────────────────────────────────────────────
+
+describe("AppProvider: router-only usage (no workspaces prop)", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("routing works without a workspaces prop", () => {
+    const Probe = () => {
+      const { navigate } = useNavigation();
+      const { path } = useLocation();
+      return (
+        <div>
+          <button onClick={() => navigate("/about")}>go</button>
+          <span data-testid="path">{path}</span>
+        </div>
+      );
+    };
+    const { getByText, getByTestId } = render(
+      <AppProvider routes={routes}>
+        <Probe />
+        <RouterView />
+      </AppProvider>,
+    );
+    expect(getByText("Home")).toBeTruthy();
+    act(() => { getByText("go").click(); });
+    expect(getByTestId("path").textContent).toBe("/about");
+    expect(getByText("About")).toBeTruthy();
+  });
+
+  it("useWorkspaces() still works below a router-only provider (empty list)", () => {
+    const { result } = renderHook(() => useWorkspaces(), {
+      wrapper: ({ children }) => (
+        <AppProvider routes={routes}>{children}</AppProvider>
+      ),
+    });
+    expect(result.current.workspaces).toEqual([]);
+  });
+});

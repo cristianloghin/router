@@ -67,7 +67,8 @@ export interface AppProviderProps<
   TMeta extends Record<string, unknown> = Record<string, unknown>,
 > {
   routes: TRoutes;
-  workspaces: TWorkspaces;
+  /** Workspace templates. Omit to use the library as a plain router. */
+  workspaces?: TWorkspaces;
   meta?: TMeta;
   config?: AppConfig;
   bus?: Bus;
@@ -127,7 +128,7 @@ export function AppProvider<
   TMeta extends Record<string, unknown> = Record<string, unknown>,
 >({
   routes,
-  workspaces,
+  workspaces = {} as TWorkspaces,
   meta = {} as TMeta,
   config = {},
   bus: externalBus,

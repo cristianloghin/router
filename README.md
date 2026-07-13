@@ -137,7 +137,7 @@ The single root provider. Must wrap your entire application.
 ```tsx
 <AppProvider
   routes={routes}
-  workspaces={workspaces}
+  workspaces={workspaces}        // optional — omit to use the library as a plain router
   config={{
     adapter: "stack",            // workspace layout adapter
     defaultLoading: <Spinner />, // global loading fallback
