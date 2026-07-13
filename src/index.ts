@@ -30,6 +30,8 @@ export { Link } from "./components/Link";
 export { StackContainer } from "./components/containers/StackContainer";
 export { SwipeContainer } from "./components/containers/SwipeContainer";
 export { TabsContainer } from "./components/containers/TabsContainer";
+export { Workspaces } from "./components/containers/Workspaces";
+export { useWorkspaceContainer } from "./components/containers/containerContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,4 +68,9 @@ export { WorkspaceError } from "./workspaces/types";
 export type { AppProviderProps, AppConfig } from "./provider/AppProvider";
 export type { RouterViewProps } from "./components/RouterView";
 export type { LinkProps } from "./components/Link";
+export type { WorkspacesProps } from "./components/containers/Workspaces";
+export type { StackContainerProps } from "./components/containers/StackContainer";
+export type { SwipeContainerProps } from "./components/containers/SwipeContainer";
+export type { TabsContainerProps } from "./components/containers/TabsContainer";
+export type { RenderWorkspace } from "./components/containers/containerContext";
 export type { QueryParamSchema, QueryParamDescriptor } from "./utils/params";

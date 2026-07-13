@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { Link } from "./Link";
 import { RouterTestProvider } from "../test-utils/RouterTestProvider";
 import { defineRoutes } from "../router/RouteRegistry";
+import { useLocation } from "../router/hooks";
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
@@ -183,3 +184,80 @@ describe("Link: replace and state props", () => {
     replaceSpy.mockRestore();
   });
 });
+
+// ─── anchor attribute passthrough (pre-adoption plan item 1) ─────────────────
+
+describe("Link: anchor attribute passthrough", () => {
+  it("forwards arbitrary anchor props (target, data-*, aria-*) to the DOM", () => {
+    render(
+      <Link to="/settings" target="_blank" data-testid="my-link" aria-label="go-settings">
+        Settings
+      </Link>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    const a = screen.getByTestId("my-link");
+    expect(a).toHaveAttribute("target", "_blank");
+    expect(a).toHaveAttribute("aria-label", "go-settings");
+  });
+
+  it("fires the user's onTouchStart handler", () => {
+    const onTouchStart = vi.fn();
+    render(
+      <Link to="/settings" onTouchStart={onTouchStart}>Settings</Link>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    fireEvent.touchStart(screen.getByRole("link"));
+    expect(onTouchStart).toHaveBeenCalledOnce();
+  });
+
+  it("runs the user's onClick before navigating", async () => {
+    const order: string[] = [];
+    const onClick = vi.fn(() => order.push("user-onClick"));
+    render(
+      <>
+        <Link to="/settings" onClick={onClick}>Settings</Link>
+        <PathProbe onPath={(p) => order.push(`path:${p}`)} />
+      </>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    await userEvent.click(screen.getByRole("link"));
+    expect(order[0]).toBe("path:/");
+    expect(order).toContain("user-onClick");
+    expect(order[order.length - 1]).toBe("path:/settings");
+    expect(order.indexOf("user-onClick")).toBeLessThan(order.indexOf("path:/settings"));
+  });
+
+  it("preventDefault() in the user's onClick blocks router navigation", async () => {
+    let currentPath = "";
+    render(
+      <>
+        <Link to="/settings" onClick={(e) => e.preventDefault()}>Settings</Link>
+        <PathProbe onPath={(p) => { currentPath = p; }} />
+      </>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    await userEvent.click(screen.getByRole("link"));
+    expect(currentPath).toBe("/");
+  });
+
+  it("href escape hatch forwards anchor props and handlers", async () => {
+    const onClick = vi.fn();
+    render(
+      <Link href="https://example.com" target="_blank" rel="noreferrer" onClick={(e) => { e.preventDefault(); onClick(); }}>
+        External
+      </Link>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    const a = screen.getByRole("link");
+    expect(a).toHaveAttribute("rel", "noreferrer");
+    await userEvent.click(a);
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+});
+
+// Reports the router's current path on every render.
+function PathProbe({ onPath }: { onPath: (path: string) => void }) {
+  const { path } = useLocation();
+  onPath(path);
+  return null;
+}

@@ -2,19 +2,27 @@ import React from "react";
 import { useWorkspaces } from "../../workspaces/hooks";
 import { GatedWorkspaceContent } from "../../workspaces/auth/AuthGate";
 import { useWorkspaceManagerContext, useWorkspaceTemplates } from "../../workspaces/context";
+import type { RenderWorkspace } from "./containerContext";
 import type { WorkspaceChannel } from "../../workspaces/types";
 
 // ─── TabsContainer ────────────────────────────────────────────────────────────
 
+export interface TabsContainerProps {
+  /** Wrap the current workspace's content in app-provided chrome. Default: bare. */
+  renderWorkspace?: RenderWorkspace;
+}
+
 /**
  * Renders the current workspace in a browser-tab style layout.
  *
- * - Displays a tab strip with all open workspaces.
- * - Renders only the current workspace's component.
+ * - Displays a tab strip with all open workspaces (that IS this container's
+ *   layout job, so it stays).
+ * - Renders only the current workspace's component, through `renderWorkspace`
+ *   when provided.
  * - No close/root button: browser tabs manage their own back navigation.
  * - Clicking a tab calls focus() to switch the active workspace.
  */
-export function TabsContainer(): React.ReactElement {
+export function TabsContainer({ renderWorkspace }: TabsContainerProps): React.ReactElement {
   const { workspaces, current, focus } = useWorkspaces();
   const manager = useWorkspaceManagerContext();
   const templates = useWorkspaceTemplates();
@@ -43,15 +51,20 @@ export function TabsContainer(): React.ReactElement {
         const template = templates[currentWorkspace.template];
         if (!template) return null;
 
-        const Component = template.component;
         const pair = manager.getChannel(currentWorkspace.id);
         if (!pair) return null;
 
-        const channel = pair.workspace as WorkspaceChannel;
+        const content = (
+          <GatedWorkspaceContent
+            workspace={currentWorkspace}
+            channel={pair.workspace as WorkspaceChannel}
+            Component={template.component}
+          />
+        );
 
         return (
           <div data-workspace-id={currentWorkspace.id} data-role="tab-content">
-            <GatedWorkspaceContent workspace={currentWorkspace} channel={channel} Component={Component} />
+            {renderWorkspace ? renderWorkspace(currentWorkspace, content) : content}
           </div>
         );
       })()}

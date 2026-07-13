@@ -1,72 +1,62 @@
-import React from "react";
+import React, { useState } from "react";
 import { useWorkspaces } from "../../workspaces/hooks";
+import { useLocation } from "../../router/hooks";
 import { useWorkspaceManagerContext, useWorkspaceTemplates } from "../../workspaces/context";
 import { GatedWorkspaceContent } from "../../workspaces/auth/AuthGate";
-import type { WorkspaceDescriptor, WorkspaceChannel } from "../../workspaces/types";
+import { WorkspaceContainerContext } from "./containerContext";
+import type { RenderWorkspace } from "./containerContext";
+import type { WorkspaceChannel } from "../../workspaces/types";
 
 // ─── StackContainer ───────────────────────────────────────────────────────────
 
+export interface StackContainerProps {
+  /** Root page content, rendered when no workspace is focused. */
+  children?: React.ReactNode;
+  /** Wrap each workspace's content in app-provided chrome. Default: bare. */
+  renderWorkspace?: RenderWorkspace;
+}
+
 /**
- * Renders all open workspaces in a stacked layout.
- *
- * Each workspace is rendered using its template component, passing the
- * workspace descriptor and its bidirectional channel as props.
- * Focus and close controls are injected by the container.
+ * Renders all open workspaces in a stacked layout, headless: the container
+ * provides no focus/close controls — apps supply their own chrome via
+ * `renderWorkspace` and drive navigation with useWorkspaces().
  */
-export function StackContainer(): React.ReactElement {
-  const { workspaces, focus, close } = useWorkspaces();
+export function StackContainer({
+  children,
+  renderWorkspace,
+}: StackContainerProps): React.ReactElement {
+  const { workspaces } = useWorkspaces();
   const manager = useWorkspaceManagerContext();
   const templates = useWorkspaceTemplates();
+  const { inWorkspace } = useLocation();
+  const [containerEl, setContainerEl] = useState<HTMLElement | null>(null);
 
   return (
-    <div data-component="stack-container">
-      {workspaces.map((workspace) => {
-        const template = templates[workspace.template];
-        if (!template) return null;
+    <WorkspaceContainerContext.Provider value={containerEl}>
+      <div data-component="stack-container" ref={setContainerEl}>
+        {!inWorkspace && children}
+        {workspaces.map((workspace) => {
+          const template = templates[workspace.template];
+          if (!template) return null;
 
-        const Component = template.component;
-        const pair = manager.getChannel(workspace.id);
-        if (!pair) return null;
+          const pair = manager.getChannel(workspace.id);
+          if (!pair) return null;
 
-        const channel = pair.workspace as WorkspaceChannel;
+          const content = (
+            <GatedWorkspaceContent
+              workspace={workspace}
+              channel={pair.workspace as WorkspaceChannel}
+              Component={template.component}
+            />
+          );
 
-        return (
-          <WorkspaceSlot
-            key={workspace.id}
-            workspace={workspace}
-            channel={channel}
-            Component={Component}
-            onFocus={() => focus(workspace.id)}
-            onClose={() => close(workspace.id)}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── WorkspaceSlot ────────────────────────────────────────────────────────────
-
-interface WorkspaceSlotProps {
-  workspace: WorkspaceDescriptor;
-  channel: WorkspaceChannel;
-  Component: React.ComponentType<{ workspace: WorkspaceDescriptor; channel: WorkspaceChannel }>;
-  onFocus: () => void;
-  onClose: () => void;
-}
-
-function WorkspaceSlot({ workspace, channel, Component, onFocus, onClose }: WorkspaceSlotProps) {
-  return (
-    <div data-workspace-id={workspace.id}>
-      <div data-role="workspace-controls">
-        <button data-action="focus" onClick={onFocus} aria-label={`Focus ${workspace.title}`}>
-          Focus
-        </button>
-        <button data-action="close" onClick={onClose} aria-label={`Close ${workspace.title}`}>
-          Close
-        </button>
+          return (
+            <div key={workspace.id} data-workspace-id={workspace.id}>
+              {renderWorkspace ? renderWorkspace(workspace, content) : content}
+            </div>
+          );
+        })}
       </div>
-      <GatedWorkspaceContent workspace={workspace} channel={channel} Component={Component} />
-    </div>
+    </WorkspaceContainerContext.Provider>
   );
 }

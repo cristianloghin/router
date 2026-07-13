@@ -191,3 +191,17 @@ describe("RouterStore: navigation lifecycle", () => {
     store.destroy();
   });
 });
+
+// ─── popstate onto a workspace URL ────────────────────────────────────────────
+
+describe("RouterStore: popstate onto a workspace URL", () => {
+  it("keeps the route path and flips inWorkspace", () => {
+    const store = new RouterStore({}, "/workspace");
+    store.navigate("/settings");
+    window.history.replaceState(null, "", "/workspace/cam/ws-1");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(store.getSnapshot().path).toBe("/settings");
+    expect(store.getSnapshot().inWorkspace).toBe(true);
+    store.destroy();
+  });
+});

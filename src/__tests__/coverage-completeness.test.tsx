@@ -39,7 +39,7 @@ import { RouteRegistry } from "../router/RouteRegistry";
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const routes = defineRoutes({
-  "/": { component: (() => <div data-testid="home">Home</div>) as React.ComponentType<React.ComponentProps<"div">> },
+  "/": { component: (() => <div data-testid="home">Home</div>) },
 });
 
 const emptyWorkspaces = defineWorkspaces({});
@@ -159,8 +159,8 @@ describe("RouterView: scrollRestoration=restore", () => {
 
   it("navigating with scrollRestoration=restore does not throw", async () => {
     const twoRoutes = defineRoutes({
-      "/":      { component: (() => <div data-testid="home">Home</div>) as React.ComponentType<React.ComponentProps<"div">> },
-      "/about": { component: (() => <div data-testid="about">About</div>) as React.ComponentType<React.ComponentProps<"div">> },
+      "/":      { component: (() => <div data-testid="home">Home</div>) },
+      "/about": { component: (() => <div data-testid="about">About</div>) },
     });
 
     function App() {
@@ -192,14 +192,14 @@ describe("RouterView: scrollRestoration=restore", () => {
 describe("RouterView: data-autofocus", () => {
   it("focuses data-autofocus element after route render", async () => {
     const twoRoutes = defineRoutes({
-      "/": { component: (() => <div data-testid="home">Home</div>) as React.ComponentType<React.ComponentProps<"div">> },
+      "/": { component: (() => <div data-testid="home">Home</div>) },
       "/focus-route": {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         component: (() => (
           <div>
             <button data-autofocus data-testid="autofocus-btn">Focused</button>
           </div>
-        )) as React.ComponentType<React.ComponentProps<"div">>,
+        )),
       },
     });
 
@@ -479,7 +479,7 @@ describe("BrowserTabAdapter: restoreState and destroy", () => {
     const adapter = new BrowserTabAdapter();
     const d = createDescriptor("cam", { ids: ["a", "b"] }, "Multi");
     await adapter.open(d);
-    const url = (window.open as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const url = (window.open as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
     expect(url).toContain("ids=a");
     expect(url).toContain("ids=b");
   });
@@ -708,8 +708,8 @@ describe("useRoute: ancestor matching", () => {
     window.history.replaceState(null, "", "/settings/profile");
 
     const twoRoutes = defineRoutes({
-      "/settings":         { component: (() => null) as React.ComponentType<React.ComponentProps<"div">> },
-      "/settings/profile": { component: (() => null) as React.ComponentType<React.ComponentProps<"div">> },
+      "/settings":         { component: (() => null) },
+      "/settings/profile": { component: (() => null) },
     });
 
     let routeResult: { matched: boolean; exact: boolean } | undefined;
@@ -916,8 +916,8 @@ describe("RouteRegistry: cycle detection", () => {
     // Build a valid registry, then inject a cycle into parentMap and re-run detectCycles
     const registry = new RouteRegistry(
       defineRoutes({
-        "/a": { component: (() => null) as React.ComponentType<React.ComponentProps<"div">> },
-        "/b": { component: (() => null) as React.ComponentType<React.ComponentProps<"div">> },
+        "/a": { component: (() => null) },
+        "/b": { component: (() => null) },
       }),
     );
 

@@ -855,3 +855,47 @@ describe("WorkspaceManager: direct access without schema", () => {
     window.history.replaceState(null, "", "/");
   });
 });
+
+// ─── updateParams URL guard (pre-adoption plan item 5d) ──────────────────────
+
+describe("WorkspaceManager: updateParams URL guard", () => {
+  it("replace-navigates when the updated workspace is current", async () => {
+    const { manager, navigate } = makeManager();
+    const d = await manager.open({ template: "cam", title: "T", params: { cameraId: "c1" } });
+    navigate.mockClear();
+    manager.updateParams(d.id, { cameraId: "c2" });
+    expect(navigate).toHaveBeenCalledWith(expect.stringContaining("cameraId=c2"), { replace: true });
+  });
+
+  it("does not navigate when updating a background workspace", async () => {
+    const { manager, navigate } = makeManager();
+    const background = await manager.open({ template: "cam", title: "A", params: { cameraId: "a" } });
+    await manager.open({ template: "cam", title: "B", params: { cameraId: "b" } });
+    navigate.mockClear();
+    manager.updateParams(background.id, { cameraId: "a2" });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("still returns the updated descriptor for a background workspace", async () => {
+    const { manager } = makeManager();
+    const background = await manager.open({ template: "cam", title: "A", params: { cameraId: "a" } });
+    await manager.open({ template: "cam", title: "B", params: { cameraId: "b" } });
+    const updated = manager.updateParams(background.id, { cameraId: "a2" });
+    expect(updated.params).toEqual({ cameraId: "a2" });
+  });
+});
+
+// ─── getUrl ───────────────────────────────────────────────────────────────────
+
+describe("WorkspaceManager: getUrl", () => {
+  it("returns the workspace URL for an open workspace", async () => {
+    const { manager } = makeManager();
+    const d = await manager.open({ template: "cam", title: "T", params: { cameraId: "c1" } });
+    expect(manager.getUrl(d.id)).toBe(`/workspace/cam/${d.id}?title=T&cameraId=c1`);
+  });
+
+  it("throws WORKSPACE_NOT_FOUND for an unknown id", () => {
+    const { manager } = makeManager();
+    expect(() => manager.getUrl("nope")).toThrow(WorkspaceError);
+  });
+});

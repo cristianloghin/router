@@ -1,6 +1,6 @@
 {
   "name": "@mikrostack/router",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Unified browser routing and workspace navigation for React",
   "license": "MIT",
   "repository": {
@@ -36,11 +36,12 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@mikrostack/chbus": "^0.1.2",
+    "@mikrostack/chbus": "^0.3.1",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
   "devDependencies": {
+    "@mikrostack/chbus": "^0.3.1",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^15.0.0",
     "@testing-library/user-event": "^14.0.0",

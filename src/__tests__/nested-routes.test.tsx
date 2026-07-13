@@ -105,7 +105,7 @@ const originalConsoleError = console.error;
 // ─── Shared routes ────────────────────────────────────────────────────────────
 
 const settingsRoutes = defineRoutes({
-  "/":                  { component: (() => <div data-testid="home">Home</div>) as React.ComponentType<React.ComponentProps<"div">> },
+  "/":                  { component: (() => <div data-testid="home">Home</div>) },
   "/settings":          { component: SettingsLayout, index: SettingsIndex },
   "/settings/profile":  { component: ProfileSettings },
   "/settings/security": { component: SecuritySettings },

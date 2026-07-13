@@ -20,7 +20,7 @@ import type { WorkspaceComponentProps } from "../workspaces/types";
 // ─── Routes fixture ───────────────────────────────────────────────────────────
 
 const routes = defineRoutes({
-  "/": { component: (() => null) as React.ComponentType<React.ComponentProps<"div">> },
+  "/": { component: (() => null) },
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ describe("workspace-channel: workspace outbound → root inbound", () => {
       const ch = useWorkspaceChannel(wsId);
       useEffect(() => {
         if (!ch) return;
-        return ch.inbound.on("ws-ping", (payload) => {
+        return ch.inbound.on("ws-ping", async (payload) => {
           received.push((payload as { text: string }).text);
         });
       }, [ch]);
@@ -217,7 +217,7 @@ describe("workspace-channel: root outbound → workspace inbound", () => {
     function WsListener({ workspace, channel }: WorkspaceComponentProps) {
       useEffect(() => {
         capturedWsChannel = channel;
-        return channel.inbound.on("root-cmd", (payload) => {
+        return channel.inbound.on("root-cmd", async (payload) => {
           wsReceived.push((payload as { text: string }).text);
         });
       }, [channel]);
@@ -322,7 +322,7 @@ describe("workspace-channel: isolation between workspaces", () => {
         const idx = capturedChannels.length;
         capturedChannels.push(channel);
         const target = idx === 0 ? receivedA : receivedB;
-        return channel.inbound.on("msg", (payload) => {
+        return channel.inbound.on("msg", async (payload) => {
           target.push((payload as { text: string }).text);
         });
       }, [channel]);

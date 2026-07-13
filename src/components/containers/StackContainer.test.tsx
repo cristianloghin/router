@@ -1,9 +1,10 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppProvider } from "../../provider/AppProvider";
 import { StackContainer } from "./StackContainer";
+import { useWorkspaceContainer } from "./containerContext";
 import { defineRoutes } from "../../router/RouteRegistry";
 import { defineWorkspaces } from "../../workspaces/defineWorkspaces";
 import { useWorkspaces } from "../../workspaces/hooks";
@@ -26,29 +27,38 @@ const workspaces = defineWorkspaces({
   },
 });
 
-function Provider({ children, navigate }: { children: React.ReactNode; navigate?: ReturnType<typeof vi.fn> }) {
+function Provider({ children }: { children: React.ReactNode }) {
   return (
-    <AppProvider
-      routes={routes}
-      workspaces={workspaces}
-      config={{ adapter: "stack" }}
-    >
+    <AppProvider routes={routes} workspaces={workspaces} config={{ adapter: "stack" }}>
       {children}
     </AppProvider>
   );
 }
 
-/** Helper: open a workspace from outside the container. */
-function Opener({ onOpen }: { onOpen?: (open: ReturnType<typeof useWorkspaces>["open"]) => void }) {
+/** Hook-driven controls — the container itself is headless. */
+function Opener({ title = "Feed" }: { title?: string }) {
   const { open } = useWorkspaces();
   return (
     <button
-      data-testid="open-btn"
-      onClick={() =>
-        open({ template: "cam", title: "Feed", params: {} }).then((d) => onOpen?.(open))
-      }
+      data-testid={`open-${title}`}
+      onClick={() => open({ template: "cam", title, params: {} })}
     >
       Open
+    </button>
+  );
+}
+
+function Actions() {
+  const { workspaces: list, close } = useWorkspaces();
+  return (
+    <button
+      data-testid="close-last"
+      onClick={() => {
+        const last = list[list.length - 1];
+        if (last) void close(last.id);
+      }}
+    >
+      Close
     </button>
   );
 }
@@ -60,13 +70,12 @@ beforeEach(() => {
 // ─── rendering ────────────────────────────────────────────────────────────────
 
 describe("StackContainer: rendering", () => {
-  it("renders nothing when no workspaces are open", () => {
+  it("renders no workspaces when none are open", () => {
     const { container } = render(
       <Provider>
         <StackContainer />
       </Provider>,
     );
-    // Container element exists but has no workspace children
     expect(container.querySelector("[data-testid^='ws-']")).toBeNull();
   });
 
@@ -74,109 +83,148 @@ describe("StackContainer: rendering", () => {
     render(
       <Provider>
         <Opener />
+        <Actions />
         <StackContainer />
       </Provider>,
     );
     await act(async () => {
-      await userEvent.click(screen.getByTestId("open-btn"));
+      await userEvent.click(screen.getByTestId("open-Feed"));
     });
     expect(document.querySelector("[data-testid^='ws-']")).not.toBeNull();
+    expect(screen.getByText("Feed")).toBeInTheDocument();
   });
 
-  it("workspace title appears in rendered output", async () => {
+  it("renders multiple workspaces in the stack", async () => {
+    render(
+      <Provider>
+        <Opener title="Feed A" />
+        <Opener title="Feed B" />
+        <StackContainer />
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-Feed A"));
+      await userEvent.click(screen.getByTestId("open-Feed B"));
+    });
+    expect(screen.getByText("Feed A")).toBeInTheDocument();
+    expect(screen.getByText("Feed B")).toBeInTheDocument();
+  });
+
+  it("ships no injected chrome (no focus/close buttons)", async () => {
     render(
       <Provider>
         <Opener />
+        <Actions />
         <StackContainer />
       </Provider>,
     );
     await act(async () => {
-      await userEvent.click(screen.getByTestId("open-btn"));
+      await userEvent.click(screen.getByTestId("open-Feed"));
     });
-    expect(screen.getByText("Feed")).toBeInTheDocument();
+    expect(document.querySelector("[data-action]")).toBeNull();
   });
 });
 
 // ─── close ────────────────────────────────────────────────────────────────────
 
 describe("StackContainer: close", () => {
-  it("workspace disappears from DOM after close button is clicked", async () => {
+  it("workspace disappears from DOM after close()", async () => {
     render(
       <Provider>
         <Opener />
+        <Actions />
         <StackContainer />
       </Provider>,
     );
     await act(async () => {
-      await userEvent.click(screen.getByTestId("open-btn"));
+      await userEvent.click(screen.getByTestId("open-Feed"));
     });
     expect(screen.getByText("Feed")).toBeInTheDocument();
-
-    const closeBtn = document.querySelector("[data-action='close']") as HTMLElement;
-    expect(closeBtn).not.toBeNull();
     await act(async () => {
-      await userEvent.click(closeBtn);
+      await userEvent.click(screen.getByTestId("close-last"));
     });
     expect(screen.queryByText("Feed")).not.toBeInTheDocument();
   });
 });
 
-// ─── focus ────────────────────────────────────────────────────────────────────
+// ─── children as root page ────────────────────────────────────────────────────
 
-describe("StackContainer: focus", () => {
-  it("renders multiple workspaces in the stack", async () => {
-    function MultiOpener() {
-      const { open } = useWorkspaces();
-      return (
-        <>
-          <button data-testid="open1" onClick={() => open({ template: "cam", title: "Feed A", params: {} })}>Open A</button>
-          <button data-testid="open2" onClick={() => open({ template: "cam", title: "Feed B", params: {} })}>Open B</button>
-        </>
-      );
-    }
-
+describe("StackContainer: children", () => {
+  it("renders children when no workspace is focused", () => {
     render(
       <Provider>
-        <MultiOpener />
-        <StackContainer />
+        <StackContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </StackContainer>
       </Provider>,
     );
-    await act(async () => {
-      await userEvent.click(screen.getByTestId("open1"));
-      await userEvent.click(screen.getByTestId("open2"));
-    });
-    expect(screen.getByText("Feed A")).toBeInTheDocument();
-    expect(screen.getByText("Feed B")).toBeInTheDocument();
+    expect(screen.getByTestId("root-page")).toBeInTheDocument();
   });
 
-  it("focus button brings the workspace forward (does not remove it from DOM)", async () => {
-    function MultiOpener() {
-      const { open } = useWorkspaces();
-      return (
-        <>
-          <button data-testid="open1" onClick={() => open({ template: "cam", title: "Feed A", params: {} })}>Open A</button>
-          <button data-testid="open2" onClick={() => open({ template: "cam", title: "Feed B", params: {} })}>Open B</button>
-        </>
-      );
-    }
+  it("hides children while a workspace URL is focused", async () => {
     render(
       <Provider>
-        <MultiOpener />
-        <StackContainer />
+        <Opener />
+        <Actions />
+        <StackContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </StackContainer>
       </Provider>,
     );
     await act(async () => {
-      await userEvent.click(screen.getByTestId("open1"));
-      await userEvent.click(screen.getByTestId("open2"));
+      await userEvent.click(screen.getByTestId("open-Feed"));
     });
-
-    const focusBtns = document.querySelectorAll("[data-action='focus']");
-    // Click focus on the first workspace
+    expect(screen.queryByTestId("root-page")).not.toBeInTheDocument();
     await act(async () => {
-      await userEvent.click(focusBtns[0] as HTMLElement);
+      await userEvent.click(screen.getByTestId("close-last"));
     });
-    // Both workspaces still present
-    expect(screen.getByText("Feed A")).toBeInTheDocument();
-    expect(screen.getByText("Feed B")).toBeInTheDocument();
+    expect(screen.getByTestId("root-page")).toBeInTheDocument();
+  });
+});
+
+// ─── renderWorkspace ──────────────────────────────────────────────────────────
+
+describe("StackContainer: renderWorkspace", () => {
+  it("wraps workspace content in app-provided chrome", async () => {
+    render(
+      <Provider>
+        <Opener />
+        <Actions />
+        <StackContainer
+          renderWorkspace={(workspace, content) => (
+            <section data-testid="chrome" aria-label={workspace.title}>
+              {content}
+            </section>
+          )}
+        />
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-Feed"));
+    });
+    const chrome = screen.getByTestId("chrome");
+    expect(chrome).toHaveAttribute("aria-label", "Feed");
+    expect(chrome.querySelector("[data-testid^='ws-']")).not.toBeNull();
+  });
+});
+
+// ─── useWorkspaceContainer ────────────────────────────────────────────────────
+
+describe("StackContainer: useWorkspaceContainer", () => {
+  it("exposes the container element to descendants", () => {
+    let seen: HTMLElement | null = null;
+    function Probe() {
+      seen = useWorkspaceContainer();
+      return null;
+    }
+    render(
+      <Provider>
+        <StackContainer>
+          <Probe />
+        </StackContainer>
+      </Provider>,
+    );
+    expect(seen).not.toBeNull();
+    expect((seen as unknown as HTMLElement).dataset.component).toBe("stack-container");
   });
 });

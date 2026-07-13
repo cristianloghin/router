@@ -125,12 +125,13 @@ function bridgeEmit<T extends ChannelContract>(
 ): Channel<T> {
   return new Proxy(channel, {
     get(target, prop, receiver) {
-      if (prop === "emit" || prop === "emitAsync") {
+      if (prop === "emit") {
         return (action: string, payload: unknown) => {
           broadcast.postMessage({ channel: name, action, payload } satisfies CrossTabMessage);
-          return (
-            target[prop as "emit"] as unknown as (action: string, payload: unknown) => unknown
-          )(action, payload);
+          return (target.emit as unknown as (action: string, payload: unknown) => unknown)(
+            action,
+            payload,
+          );
         };
       }
       return Reflect.get(target, prop, receiver);

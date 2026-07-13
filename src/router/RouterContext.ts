@@ -16,6 +16,8 @@ export interface RouterState {
   isTransitioning: boolean;
   canGoBack: boolean;
   meta: Record<string, unknown>;
+  /** True while the address bar shows a workspace URL. */
+  inWorkspace: boolean;
 }
 
 // ─── RouterStore ──────────────────────────────────────────────────────────────
@@ -68,6 +70,7 @@ export class RouterStore {
       isTransitioning: false,
       canGoBack: false,
       meta: initialMeta,
+      inWorkspace: this.isWorkspacePath(loc.pathname),
     };
 
     this.handlePopState = this.handlePopState.bind(this);
@@ -130,7 +133,9 @@ export class RouterStore {
       } else {
         window.history.pushState(state ?? null, "", resolvedPath);
       }
-      // Don't update router path state — workspace URL is transparent to the router.
+      // Don't update router path state — workspace URL is transparent to the
+      // router. Only the inWorkspace flag flips.
+      this.setState({ inWorkspace: true });
       this.onNavigate?.({ from: this.previousPath, to: eventTo, type: eventType });
       return;
     }
@@ -189,6 +194,7 @@ export class RouterStore {
         path: resolvedPath,
         searchParams: new URLSearchParams(window.location.search),
         canGoBack: this.historyStack.canGoBack,
+        inWorkspace: false,
       });
       this.onNavigate?.({ from: prevPath, to: resolvedPath, type });
       return;
@@ -209,6 +215,7 @@ export class RouterStore {
       path: resolvedPath,
       searchParams: newSearch,
       canGoBack: this.historyStack.canGoBack,
+      inWorkspace: false,
     });
 
     this.onNavigate?.({ from: prevPath, to: resolvedPath, type: eventType });
@@ -264,12 +271,16 @@ export class RouterStore {
 
   private handlePopState(): void {
     const loc = window.location;
-    if (this.isWorkspacePath(loc.pathname)) return;
+    if (this.isWorkspacePath(loc.pathname)) {
+      this.setState({ inWorkspace: true });
+      return;
+    }
 
     this.setState({
       path: loc.pathname,
       searchParams: new URLSearchParams(loc.search),
       canGoBack: this.historyStack.canGoBack,
+      inWorkspace: false,
     });
   }
 

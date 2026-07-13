@@ -148,3 +148,26 @@ describe("TabsContainer: no root navigation button", () => {
     expect(document.querySelector("[data-action='close']")).toBeNull();
   });
 });
+
+// ─── renderWorkspace ──────────────────────────────────────────────────────────
+
+describe("TabsContainer: renderWorkspace", () => {
+  it("wraps the current workspace's content in app-provided chrome", async () => {
+    render(
+      <Provider>
+        <Opener />
+        <TabsContainer
+          renderWorkspace={(workspace, content) => (
+            <section data-testid="chrome" aria-label={workspace.title}>
+              {content}
+            </section>
+          )}
+        />
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-Feed"));
+    });
+    expect(screen.getByTestId("chrome")).toBeInTheDocument();
+  });
+});

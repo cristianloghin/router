@@ -69,8 +69,10 @@ npm install @mikrostack/router
 **Peer dependencies:**
 
 ```sh
-npm install react react-dom
+npm install react react-dom @mikrostack/chbus
 ```
+
+Requires `@mikrostack/chbus` `^0.3.1`.
 
 ---
 
@@ -604,19 +606,46 @@ The adapter controls how workspaces are laid out. Specify via `AppProvider` `con
 
 ### Container components
 
-Each adapter has a corresponding container component that renders the open workspaces. Place it in your layout alongside the `RouterView`:
+Each adapter has a corresponding container component that renders the open workspaces. The easiest way to use them is `<Workspaces>`, which picks the container matching the active adapter automatically:
+
+```tsx
+import { Workspaces } from "@mikrostack/router";
+
+<Workspaces
+  renderWorkspace={(workspace, content) => (
+    <MyWorkspaceFrame title={workspace.title}>{content}</MyWorkspaceFrame>
+  )}
+>
+  <Dashboard /> {/* the root page */}
+</Workspaces>
+```
+
+Or place a specific container directly:
 
 ```tsx
 import { StackContainer, SwipeContainer, TabsContainer } from "@mikrostack/router";
 
-// For adapter="stack"
-<StackContainer />
+// For adapter="stack" — children render when no workspace is focused
+<StackContainer>{rootPage}</StackContainer>
 
-// For adapter="swipe"
-<SwipeContainer />
+// For adapter="swipe" — children become page 0 of the swipe deck
+<SwipeContainer>{rootPage}</SwipeContainer>
 
-// For adapter="tabs" — renders a tab bar (the actual content is in the new tab)
+// For adapter="tabs" — renders a tab strip (the actual content is in the new tab)
 <TabsContainer />
+```
+
+**Containers are headless.** They inject no buttons or UI copy — wrap each workspace's content in your own chrome with the `renderWorkspace` prop (`(workspace, content) => ReactNode`, default: renders `content` bare) and drive focus/close from your chrome via `useWorkspaces()`.
+
+**`children` as the root page.** `SwipeContainer` renders `children` as page 0 of the swipe track — the deck starts at your dashboard. `StackContainer` renders `children` whenever no workspace URL is focused.
+
+**Scroll→URL sync (`SwipeContainer`, on by default).** When a swipe settles on a workspace page, the adapter index updates (without emitting `workspace:focused`) and the URL is *replaced* with that workspace's URL; settling on the root page replaces the URL with the current route path. Swiping never pushes history entries, fires navigation events, or triggers `usePrompt`. Programmatic `focus()` smooth-scrolls the deck to the workspace's page, and orientation changes re-snap to the settled page.
+
+**`useWorkspaceContainer()`.** Returns the active container's scroll element (or `null`), so app code can drive the deck imperatively — e.g. scroll home from a workspace-selector overlay:
+
+```tsx
+const deck = useWorkspaceContainer();
+deck?.scrollTo({ left: 0, behavior: "smooth" });
 ```
 
 ### `useWorkspaces`
@@ -664,7 +693,7 @@ function WorkspaceManager() {
 | `open` | `(input) => Promise<WorkspaceDescriptor>` | Open a new workspace instance. Rejects with `WorkspaceError` on auth failure or limit exceeded. |
 | `focus` | `(id: string) => Promise<WorkspaceDescriptor>` | Focus an open workspace. |
 | `close` | `(id: string, autoFocus?: boolean) => Promise<void>` | Close a workspace. Navigates back to the origin route. |
-| `updateParams` | `(id, params) => WorkspaceDescriptor` | Update workspace params (partial merge). Updates the URL. |
+| `updateParams` | `(id, params) => WorkspaceDescriptor` | Update workspace params (partial merge). Replaces the URL only when the workspace is the focused one. |
 | `updateTitle` | `(id, title) => WorkspaceDescriptor` | Update the workspace title. |
 
 **State:**
@@ -843,6 +872,7 @@ AppProvider
 // Components
 RouterView
 Link
+Workspaces              // auto-selects the container for the active adapter
 StackContainer
 SwipeContainer
 TabsContainer
@@ -858,9 +888,10 @@ useMeta()             → [meta, setMeta]
 usePrompt(msg, when)
 
 // Workspace hooks
-useWorkspaces()         → { workspaces, current, adapterType, open, focus, close, updateParams, updateTitle }
-useWorkspace(id)        → { workspace, params, channel } | null
-useWorkspaceChannel(id) → { inbound, outbound } | null
+useWorkspaces()          → { workspaces, current, adapterType, open, focus, close, updateParams, updateTitle }
+useWorkspace(id)         → { workspace, params, channel } | null
+useWorkspaceChannel(id)  → { inbound, outbound } | null
+useWorkspaceContainer()  → HTMLElement | null   // the active container's scroll element
 
 // Imperative
 navigate(to, options?)

@@ -63,12 +63,12 @@ export function useLocation(workspaceBasePath = "/workspace"): UseLocationReturn
     () => ({
       path: snapshot.path,
       searchParams: snapshot.searchParams,
-      inWorkspace: store.isWorkspacePath(window.location.pathname),
+      inWorkspace: snapshot.inWorkspace,
       canGoBack: snapshot.canGoBack,
       isTransitioning: snapshot.isTransitioning,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [snapshot.path, snapshot.searchParams, snapshot.canGoBack, snapshot.isTransitioning, workspaceBasePath],
+    [snapshot.path, snapshot.searchParams, snapshot.inWorkspace, snapshot.canGoBack, snapshot.isTransitioning, workspaceBasePath],
   );
 }
 

@@ -111,12 +111,12 @@ Built in, **on by default**:
 
 ## Acceptance checklist
 
-- [ ] `npm test` green (including new tests for every item above)
-- [ ] `npm run typecheck` fully clean — including the pre-existing test-file errors (mock components in `__tests__/*.tsx` typed as `div`)
-- [ ] `npm run build` clean; new exports (`Workspaces`, `useWorkspaceContainer`, `getUrl` via manager, `WorkspaceError` if not already) in `src/index.ts` and the emitted `.d.ts`
-- [ ] chbus peer `^0.3.1`; installs against the app without peer warnings
-- [ ] README updated: Link passthrough, `Workspaces`, `children`/`renderWorkspace`/scroll-sync on containers, `useWorkspaceContainer`, persistence, imperative `navigate`
-- [ ] Version bump + publish (app consumes it in a follow-up migration)
+- [x] `npm test` green (555 tests, 29 files, 100% line coverage)
+- [x] `npm run typecheck` fully clean — including the pre-existing test-file errors (mock components in `__tests__/*.tsx` typed as `div`)
+- [x] `npm run build` clean; new exports (`Workspaces`, `useWorkspaceContainer`, `getUrl` via manager, `WorkspaceError`) in `src/index.ts` and the emitted `.d.ts`
+- [x] chbus peer `^0.3.1`; installs against the app without peer warnings
+- [x] README updated: Link passthrough, `Workspaces`, `children`/`renderWorkspace`/scroll-sync on containers, `useWorkspaceContainer`, persistence, imperative `navigate`
+- [x] Version bumped to 0.1.0 — publish is a separate manual step (app consumes it in a follow-up migration)
 
 ## Follow-up (separate effort, in the app repo)
 

@@ -491,8 +491,13 @@ export class WorkspaceManager {
 
     // Get the updated descriptor (adapter mutates in-place in StackAdapter)
     const updated = this.adapter.getAll().find((w) => w.id === id) ?? workspace;
-    const url = this.buildUrl(updated);
-    this._navigate(url, { replace: true });
+
+    // Only sync the URL when the updated workspace is the focused one —
+    // updating a background workspace must not clobber the current URL.
+    if (this.adapter.getCurrent()?.id === id) {
+      const url = this.buildUrl(updated);
+      this._navigate(url, { replace: true });
+    }
 
     return updated;
   }
@@ -539,6 +544,15 @@ export class WorkspaceManager {
 
   getChannel(workspaceId: string): WorkspaceChannelPair | null {
     return this.channels.get(workspaceId) ?? null;
+  }
+
+  /** The URL of an open workspace (containers use this for scroll→URL sync). */
+  getUrl(id: string): string {
+    const workspace = this.adapter.getAll().find((w) => w.id === id);
+    if (!workspace) {
+      throw new WorkspaceError("WORKSPACE_NOT_FOUND", `Workspace "${id}" not found`, id);
+    }
+    return this.buildUrl(workspace);
   }
 
   getAdapter(): WorkspaceAdapter {

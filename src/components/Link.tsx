@@ -6,15 +6,14 @@ import type { LinkParamsProp, RoutePath } from "../router/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface LinkToBaseProps<TPath extends string> {
+interface LinkToBaseProps<TPath extends string>
+  extends Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> {
   to: TPath;
   replace?: boolean;
   state?: Record<string, unknown>;
   children: React.ReactNode;
-  className?: string;
   activeClassName?: string;
   exactActiveClassName?: string;
-  style?: React.CSSProperties;
   activeStyle?: React.CSSProperties;
   exactActiveStyle?: React.CSSProperties;
   href?: never;
@@ -24,11 +23,10 @@ interface LinkToBaseProps<TPath extends string> {
 export type LinkToProps<TPath extends string = string> = LinkToBaseProps<TPath> &
   LinkParamsProp<TPath>;
 
-interface LinkHrefProps {
+interface LinkHrefProps
+  extends Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> {
   href: string;
   children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
   to?: never;
 }
 
@@ -42,10 +40,11 @@ export function Link<TPath extends RoutePath = RoutePath>(
   props: LinkProps<TPath>,
 ): React.ReactElement {
   // Escape hatch: href-based link with no interception or active state.
+  // All other anchor attributes (onClick, target, data-*, aria-*) pass through.
   if ("href" in props && props.href !== undefined) {
-    const { href, children, className, style } = props;
+    const { href, children, to: _to, ...anchorProps } = props;
     return (
-      <a href={href} className={className} style={style}>
+      <a href={href} {...anchorProps}>
         {children}
       </a>
     );
@@ -63,6 +62,9 @@ export function Link<TPath extends RoutePath = RoutePath>(
     style,
     activeStyle,
     exactActiveStyle,
+    onClick,
+    href: _href,
+    ...anchorProps
   } = props as LinkToProps;
 
   const store = useRouterStore();
@@ -99,6 +101,10 @@ export function Link<TPath extends RoutePath = RoutePath>(
   };
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // User's handler runs first; preventDefault() there opts out of router
+    // navigation (mirrors native anchor semantics).
+    onClick?.(e);
+    if (e.defaultPrevented) return;
     // Pass through modifier-key clicks (new tab, etc.)
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
@@ -107,6 +113,7 @@ export function Link<TPath extends RoutePath = RoutePath>(
 
   return (
     <a
+      {...anchorProps}
       href={href}
       className={computedClassName}
       style={Object.keys(computedStyle).length > 0 ? computedStyle : undefined}

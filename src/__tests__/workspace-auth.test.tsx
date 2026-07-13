@@ -21,7 +21,7 @@ const Stub: React.ComponentType<WorkspaceComponentProps<any>> = () => null;
 // ─── Routes (routes-only context) ─────────────────────────────────────────────
 
 const routes = defineRoutes({
-  "/": { component: (() => null) as React.ComponentType<React.ComponentProps<"div">> },
+  "/": { component: (() => null) },
 });
 
 // ─── Wrapper factories ────────────────────────────────────────────────────────

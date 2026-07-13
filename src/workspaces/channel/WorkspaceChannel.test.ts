@@ -287,27 +287,6 @@ describe("createWorkspaceChannel: cross-tab bridging", () => {
   });
 });
 
-describe("createWorkspaceChannel: cross-tab emitAsync", () => {
-  beforeEach(() => {
-    MockBroadcastChannel.instances = [];
-    vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
-    return () => vi.unstubAllGlobals();
-  });
-
-  it("emitAsync is also mirrored across the BroadcastChannel", () => {
-    const { bus, channels } = makeBus();
-    const pair = createWorkspaceChannel("ws-1", bus, { crossTab: true });
-    (pair.workspace.outbound.emitAsync as (a: string, p: unknown) => void)("motion", { cam: "c1" });
-    const bc = MockBroadcastChannel.instances[0]!;
-    expect(bc.postMessage).toHaveBeenCalledWith({
-      channel: "ws-to-root",
-      action: "motion",
-      payload: { cam: "c1" },
-    });
-    expect(channels["ws-to-root"]!.emitAsync).toHaveBeenCalledWith("motion", { cam: "c1" });
-  });
-});
-
 describe("createWorkspaceChannel: bridged channel passthrough", () => {
   beforeEach(() => {
     MockBroadcastChannel.instances = [];
