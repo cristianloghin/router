@@ -92,8 +92,12 @@ export function SwipeContainer({
         window.history.replaceState(null, "", manager.getUrl(workspace.id));
       }
     } else {
-      // Root page: restore the router's current route path.
-      window.history.replaceState(null, "", store.getSnapshot().path);
+      // Root page: restore the router's current route path, including its
+      // query string (the snapshot retains the route's search params while a
+      // workspace URL is in the address bar).
+      const { path, searchParams } = store.getSnapshot();
+      const search = searchParams.toString();
+      window.history.replaceState(null, "", search ? `${path}?${search}` : path);
     }
   }, [manager, store, rootOffset, pageWidthOf]);
 

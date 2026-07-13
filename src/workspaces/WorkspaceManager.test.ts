@@ -899,3 +899,21 @@ describe("WorkspaceManager: getUrl", () => {
     expect(() => manager.getUrl("nope")).toThrow(WorkspaceError);
   });
 });
+
+// ─── persist.version runtime guard ────────────────────────────────────────────
+
+describe("WorkspaceManager: persist.version runtime guard", () => {
+  it("throws when persist.version is not a finite number", () => {
+    expect(() =>
+      makeManager({ persist: { version: undefined as unknown as number } }),
+    ).toThrow(/persist\.version must be a finite number/);
+    expect(() =>
+      makeManager({ persist: { version: NaN } }),
+    ).toThrow(/persist\.version/);
+  });
+
+  it("accepts version 0", () => {
+    window.sessionStorage.clear();
+    expect(() => makeManager({ persist: { version: 0 } })).not.toThrow();
+  });
+});

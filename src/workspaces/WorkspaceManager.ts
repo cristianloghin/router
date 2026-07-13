@@ -100,6 +100,13 @@ export class WorkspaceManager {
       config.getCurrentPath ??
       (() => (typeof window !== "undefined" ? window.location.pathname : "/"));
     this.onCredentialAttempt = config.onCredentialAttempt;
+    if (config.persist && !Number.isFinite(config.persist.version)) {
+      // Guards dynamically-built configs (plain JS) from silently producing
+      // a "ws:vundefined" storage key.
+      throw new Error(
+        `[@mikrostack/router] persist.version must be a finite number, got ${String(config.persist.version)}`,
+      );
+    }
     this.persistKey = config.persist ? `ws:v${config.persist.version}` : null;
 
     if (this.persistKey) {

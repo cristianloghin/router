@@ -430,3 +430,29 @@ describe("SwipeContainer: orientation change", () => {
     delete (window.screen as any).orientation;
   });
 });
+
+// ─── root settle preserves the route's query string ───────────────────────────
+
+describe("SwipeContainer: root settle preserves query string", () => {
+  it("restores path AND search params when settling on the root page", async () => {
+    window.history.replaceState(null, "", "/?filter=active&sort=name");
+    render(
+      <Provider>
+        <Opener title="A" />
+        <Actions />
+        <SwipeContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </SwipeContainer>
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-A"));
+    });
+    expect(window.location.pathname).toMatch(/^\/workspace\/cam\//);
+
+    const track = getTrack();
+    scrollTrackTo(track, 200, 0); // settle on page 0 → root
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.search).toBe("?filter=active&sort=name");
+  });
+});
