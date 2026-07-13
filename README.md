@@ -157,13 +157,21 @@ The single root provider. Must wrap your entire application.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `adapter` | `"auto" \| "stack" \| "swipe" \| "tabs"` | `"auto"` | Workspace layout adapter. `auto` detects touch devices. |
+| `adapter` | `"auto" \| "stack" \| "swipe" \| "tabs"` | `"auto"` | Workspace layout adapter. `auto` picks `swipe` on coarse pointers, otherwise `stack` (never `tabs`). |
+| `maxWorkspaces` | `number` | `10` | Maximum total open workspaces across all templates. |
+| `persistWorkspaces` | `boolean` | `false` | Persist workspace state in `sessionStorage`. |
+| `persistVersion` | `number` | — | Required when `persistWorkspaces` is `true`; bumps invalidate old persisted state. |
 | `defaultLoading` | `React.ComponentType \| React.ReactNode` | `null` | Fallback shown during route/lazy load suspense |
 | `defaultError` | `React.ComponentType<RouteErrorProps>` | Built-in | Fallback shown when a route throws |
 | `auth.isAuthenticated` | `() => boolean \| Promise<boolean>` | `() => false` | Used by `authenticated` workspace auth rules |
 | `workspaceBasePath` | `string` | `"/workspace"` | URL prefix for workspace paths |
 | `onNavigate` | `(event: NavigationEvent) => void` | — | Called after every navigation |
-| `onBeforeNavigate` | `(event & { cancel }) => void` | — | Called before navigation; call `cancel()` to block |
+| `onBeforeNavigate` | `(event & { cancel }) => void` | — | Called before navigation; call `cancel()` to block navigation |
+
+**`AppProvider` props (outside `config`):**
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
 | `bus` | `Bus` | auto-created | External `@mikrostack/chbus` bus for channel observability |
 
 ### `RouterView`
@@ -187,7 +195,7 @@ Type-safe navigation link. Supports all standard anchor attributes.
 <Link to="/about" state={{ from: "home" }}>About</Link>
 
 // External links — rendered as a plain <a>
-<Link to="https://example.com" external>External</Link>
+<Link href="https://example.com">External</Link>
 ```
 
 ### Nested routes
@@ -307,7 +315,7 @@ defineRoutes({
 
 ### `notFound()`
 
-Throw `notFound()` from inside a route component to signal a 404. The router calls the nearest `onNotFound` handler (which by default renders the `RouterView` fallback).
+Throw `notFound()` from inside a route component to signal a 404. It throws a sentinel caught by the router's internal boundary, which renders the `RouterView` fallback.
 
 ```tsx
 import { notFound } from "@mikrostack/router";
@@ -413,12 +421,21 @@ function UserDetail() {
 
 ### `useSearchParams`
 
-Returns the current `URLSearchParams` object, re-rendering on changes.
+Returns the current `URLSearchParams` and a setter (tuple), re-rendering on changes.
 
 ```tsx
 function SearchResults() {
-  const searchParams = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("q") ?? "";
+
+  const setTab = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("tab", "results");
+      return next;
+    });
+  };
+
   return <div>Results for: {query}</div>;
 }
 ```
@@ -835,7 +852,7 @@ useNavigation()       → { navigate, back, buildPath }
 useLocation()         → { path, searchParams, inWorkspace, canGoBack, isTransitioning }
 useRoute(pattern)     → { matched, exact, params }
 useParams(pattern)    → ExtractParams<pattern>
-useSearchParams()     → URLSearchParams
+useSearchParams()     → [URLSearchParams, setSearchParams]
 useQueryState(schema) → [state, setState]
 useMeta()             → [meta, setMeta]
 usePrompt(msg, when)
