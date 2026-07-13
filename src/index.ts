@@ -40,6 +40,12 @@ export type {
   RouteMap,
   NavigationEvent,
   NavigationType,
+  NavigationContext,
+  NavigateOptions,
+  Register,
+  RegisteredRoutes,
+  RoutePath,
+  ExtractParams,
 } from "./router/types";
 
 export type {
@@ -52,7 +58,10 @@ export type {
   OpenWorkspaceInput,
   WorkspaceTemplateMap,
   AdapterType,
+  AuthGateProps,
+  CredentialInput,
 } from "./workspaces/types";
+export { WorkspaceError } from "./workspaces/types";
 
 export type { AppProviderProps, AppConfig } from "./provider/AppProvider";
 export type { RouterViewProps } from "./components/RouterView";

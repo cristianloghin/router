@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type React from "react";
 import type { RouteErrorProps } from "../router/types";
+import type { AuthGateProps } from "../workspaces/types";
 
 // ─── AppConfigContext ─────────────────────────────────────────────────────────
 
@@ -11,6 +12,8 @@ import type { RouteErrorProps } from "../router/types";
 export interface AppConfigContextValue {
   defaultLoading?: React.ComponentType | React.ReactNode;
   defaultError?: React.ComponentType<RouteErrorProps>;
+  /** Custom auth gate for direct-access workspace auth failures (spec §6.4). */
+  AuthGate?: React.ComponentType<AuthGateProps>;
 }
 
 export const AppConfigContext = createContext<AppConfigContextValue>({});

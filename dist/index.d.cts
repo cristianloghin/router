@@ -1,58 +1,6 @@
 import React from 'react';
 import { ChannelContract, Channel, Bus } from '@mikrostack/chbus';
 
-/**
- * Extracts :param segments from a path pattern string into a typed Record.
- *
- * "/camera/:id"       → { id: string }
- * "/a/:x/b/:y"        → { x: string; y: string }
- * "/settings/profile" → Record<string, never>
- */
-type ExtractParams<T extends string> = T extends `${string}:${infer Param}/${infer Rest}` ? {
-    [K in Param | keyof ExtractParams<`/${Rest}`>]: string;
-} : T extends `${string}:${infer Param}` ? {
-    [K in Param]: string;
-} : Record<string, never>;
-interface RouteComponentProps<TParams extends Record<string, string>> {
-    params: TParams;
-    outlet: React.ReactNode;
-}
-interface RouteErrorProps {
-    error: Error;
-    reset: () => void;
-    path: string;
-}
-interface RouteDefinition<TPath extends string = string> {
-    component: React.ComponentType<RouteComponentProps<ExtractParams<TPath>>> | React.LazyExoticComponent<React.ComponentType<RouteComponentProps<ExtractParams<TPath>>>>;
-    index?: React.ComponentType | React.LazyExoticComponent<React.ComponentType>;
-    loading?: React.ComponentType | React.ReactNode;
-    error?: React.ComponentType<RouteErrorProps>;
-    guard?: (params: ExtractParams<TPath>, context: NavigationContext) => boolean | string | Promise<boolean | string>;
-    parent?: null;
-}
-type RawRouteMap = Record<string, RouteDefinition<string>>;
-type RouteMap<TMap extends RawRouteMap = RawRouteMap> = Readonly<TMap>;
-interface NavigationContext {
-    path: string;
-    params: Record<string, string>;
-    searchParams: URLSearchParams;
-    inWorkspace: boolean;
-    currentWorkspace: null;
-}
-interface NavigateOptions {
-    replace?: boolean;
-    state?: Record<string, unknown>;
-    params?: Record<string, string>;
-}
-type NavigationType = "push" | "replace" | "back" | "workspace-open" | "workspace-close";
-interface NavigationEvent {
-    from: string | null;
-    to: string;
-    type: NavigationType;
-}
-
-declare function defineRoutes<TMap extends RawRouteMap>(map: TMap): RouteMap<TMap>;
-
 type ParamType = "string" | "number" | "boolean" | "string[]" | "number[]";
 type ParamSchema = Record<string, ParamType>;
 type QueryParamDescriptor = {
@@ -64,52 +12,6 @@ type InferParamType<T extends ParamType> = T extends "string" ? string : T exten
 type InferQueryState<TSchema extends QueryParamSchema> = {
     [K in keyof TSchema]: InferParamType<TSchema[K]["type"]>;
 };
-
-interface UseNavigationReturn {
-    navigate(to: string, options?: {
-        replace?: boolean;
-        state?: Record<string, unknown>;
-        params?: Record<string, string>;
-    }): void;
-    back(): void;
-    buildPath(pattern: string, params?: Record<string, string>): string;
-}
-declare function useNavigation(): UseNavigationReturn;
-interface UseLocationReturn {
-    path: string;
-    searchParams: URLSearchParams;
-    inWorkspace: boolean;
-    canGoBack: boolean;
-    isTransitioning: boolean;
-}
-declare function useLocation(workspaceBasePath?: string): UseLocationReturn;
-declare function useRoute<TPath extends string>(path: TPath): {
-    matched: boolean;
-    params: ExtractParams<TPath>;
-    exact: boolean;
-};
-declare function useParams<TPath extends string>(path: TPath): ExtractParams<TPath>;
-declare function useSearchParams(): [
-    URLSearchParams,
-    (next: URLSearchParams | ((prev: URLSearchParams) => URLSearchParams)) => void
-];
-declare function useQueryState<TSchema extends QueryParamSchema>(schema: TSchema): [InferQueryState<TSchema>, (patch: Partial<InferQueryState<TSchema>>) => void];
-declare function useMeta<TMeta extends Record<string, unknown>>(): [
-    TMeta,
-    (patch: Partial<TMeta>) => void
-];
-declare function usePrompt(message: string, when: boolean): void;
-
-/**
- * Throws a sentinel value that RouterView's error boundary catches to
- * render the fallback. Call this from a route component when the resource
- * does not exist.
- *
- * Works correctly inside async rendering and Suspense.
- */
-declare function notFound(): never;
-
-declare function navigate(to: string, options?: NavigateOptions): void;
 
 type WorkspaceParams = Record<string, string | number | boolean | string[] | number[]>;
 interface WorkspaceDescriptor<TParams extends WorkspaceParams = WorkspaceParams> {
@@ -156,6 +58,16 @@ type WorkspaceAuthRule = {
     type: "custom";
     check: (context: AuthCheckContext) => boolean | Promise<boolean>;
 };
+/**
+ * Props for the AuthGate component rendered in place of a workspace whose
+ * direct-access auth check failed (spec §6.4). Override the default gate via
+ * AppConfig.components.AuthGate.
+ */
+interface AuthGateProps {
+    workspace: WorkspaceDescriptor;
+    authRule: WorkspaceAuthRule;
+    retry: (input?: CredentialInput) => Promise<void>;
+}
 interface WorkspaceTemplate<TParams extends WorkspaceParams = WorkspaceParams> {
     component: React.ComponentType<WorkspaceComponentProps<TParams>>;
     defaultTitle?: string | ((params: TParams) => string);
@@ -166,11 +78,156 @@ interface WorkspaceTemplate<TParams extends WorkspaceParams = WorkspaceParams> {
 type WorkspaceTemplateMap = Record<string, WorkspaceTemplate<WorkspaceParams>>;
 type InferParams<T> = T extends WorkspaceTemplate<infer P> ? P : never;
 type AdapterType = "stack" | "swipe" | "tabs";
+type WorkspaceErrorCode = "AUTH_FAILED" | "MAX_INSTANCES_REACHED" | "MAX_WORKSPACES_REACHED" | "WORKSPACE_NOT_FOUND" | "ADAPTER_ERROR";
+declare class WorkspaceError extends Error {
+    readonly code: WorkspaceErrorCode;
+    readonly workspaceId: string | null;
+    constructor(code: WorkspaceErrorCode, message: string, workspaceId?: string | null);
+}
 interface OpenWorkspaceInput<TKey = string, TParams = WorkspaceParams> {
     template: TKey;
     title: string;
     params: TParams;
 }
+
+/**
+ * Extracts :param segments from a path pattern string into a typed Record.
+ *
+ * "/camera/:id"       → { id: string }
+ * "/a/:x/b/:y"        → { x: string; y: string }
+ * "/settings/profile" → Record<string, never>
+ */
+type ExtractParams<T extends string> = T extends `${string}:${infer Param}/${infer Rest}` ? {
+    [K in Param | keyof ExtractParams<`/${Rest}`>]: string;
+} : T extends `${string}:${infer Param}` ? {
+    [K in Param]: string;
+} : Record<string, never>;
+interface RouteComponentProps<TParams extends Record<string, string>> {
+    params: TParams;
+    outlet: React.ReactNode;
+}
+interface RouteErrorProps {
+    error: Error;
+    reset: () => void;
+    path: string;
+}
+interface RouteDefinition<TPath extends string = string> {
+    component: React.ComponentType<RouteComponentProps<ExtractParams<TPath>>> | React.LazyExoticComponent<React.ComponentType<RouteComponentProps<ExtractParams<TPath>>>>;
+    index?: React.ComponentType | React.LazyExoticComponent<React.ComponentType>;
+    loading?: React.ComponentType | React.ReactNode;
+    error?: React.ComponentType<RouteErrorProps>;
+    guard?: (params: ExtractParams<TPath>, context: NavigationContext) => boolean | string | Promise<boolean | string>;
+    parent?: null;
+}
+type RawRouteMap = Record<string, RouteDefinition<string>>;
+type RouteMap<TMap extends RawRouteMap = RawRouteMap> = Readonly<TMap>;
+interface NavigationContext {
+    path: string;
+    params: Record<string, string>;
+    searchParams: URLSearchParams;
+    inWorkspace: boolean;
+    currentWorkspace: WorkspaceDescriptor | null;
+}
+interface NavigateOptions {
+    replace?: boolean;
+    state?: Record<string, unknown>;
+    params?: Record<string, string>;
+}
+/**
+ * Module-augmentation registration point. Apps opt into compile-time route
+ * key/param checking by augmenting this interface with their route map:
+ *
+ * ```ts
+ * const routes = defineRoutes({ ... });
+ * declare module "@mikrostack/router" {
+ *   interface Register { routes: typeof routes }
+ * }
+ * ```
+ *
+ * When unregistered, route keys are plain strings (no checking).
+ */
+interface Register {
+}
+/** The app's registered route map, or the loose RouteMap when unregistered. */
+type RegisteredRoutes = Register extends {
+    routes: infer R;
+} ? R : RouteMap;
+/** Union of registered route keys; plain `string` when unregistered. */
+type RoutePath = Register extends {
+    routes: infer R;
+} ? keyof R & string : string;
+/**
+ * Variadic argument tuple for navigate(): routes without params take optional
+ * options; routes with params require `options.params` (spec §4.2).
+ */
+type NavigateArgs<TPath extends string> = ExtractParams<TPath> extends Record<string, never> ? [options?: NavigateOptions] : [options: Omit<NavigateOptions, "params"> & {
+    params: ExtractParams<TPath>;
+}];
+/** Variadic argument tuple for buildPath(). */
+type BuildPathArgs<TPath extends string> = ExtractParams<TPath> extends Record<string, never> ? [params?: Record<string, string>] : [params: ExtractParams<TPath>];
+/**
+ * The `params` prop for `<Link>`: forbidden for param-less routes, required
+ * for parametric routes (spec §4.11).
+ */
+type LinkParamsProp<TPath extends string> = ExtractParams<TPath> extends Record<string, never> ? {
+    params?: Record<string, string>;
+} : {
+    params: ExtractParams<TPath>;
+};
+type NavigationType = "push" | "replace" | "back" | "workspace-open" | "workspace-close";
+interface NavigationEvent {
+    from: string | null;
+    to: string;
+    type: NavigationType;
+}
+
+declare function defineRoutes<TMap extends RawRouteMap>(map: TMap): RouteMap<TMap>;
+
+interface UseNavigationReturn {
+    /** Navigate to a route key with typed params (see Register in types). */
+    navigate<TPath extends RoutePath>(to: TPath, ...args: NavigateArgs<TPath>): void;
+    /** Raw string escape hatch — external URLs or dynamically built paths. */
+    navigate(to: string, options?: NavigateOptions): void;
+    back(): void;
+    buildPath<TPath extends RoutePath>(path: TPath, ...args: BuildPathArgs<TPath>): string;
+}
+declare function useNavigation(): UseNavigationReturn;
+interface UseLocationReturn {
+    path: string;
+    searchParams: URLSearchParams;
+    inWorkspace: boolean;
+    canGoBack: boolean;
+    isTransitioning: boolean;
+}
+declare function useLocation(workspaceBasePath?: string): UseLocationReturn;
+declare function useRoute<TPath extends RoutePath>(path: TPath): {
+    matched: boolean;
+    params: ExtractParams<TPath>;
+    exact: boolean;
+};
+declare function useParams<TPath extends RoutePath>(path: TPath): ExtractParams<TPath>;
+declare function useSearchParams(): [
+    URLSearchParams,
+    (next: URLSearchParams | ((prev: URLSearchParams) => URLSearchParams)) => void
+];
+declare function useQueryState<TSchema extends QueryParamSchema>(schema: TSchema): [InferQueryState<TSchema>, (patch: Partial<InferQueryState<TSchema>>) => void];
+declare function useMeta<TMeta extends Record<string, unknown>>(): [
+    TMeta,
+    (patch: Partial<TMeta>) => void
+];
+declare function usePrompt(message: string, when: boolean): void;
+
+/**
+ * Throws a sentinel value that RouterView's error boundary catches to
+ * render the fallback. Call this from a route component when the resource
+ * does not exist.
+ *
+ * Works correctly inside async rendering and Suspense.
+ */
+declare function notFound(): never;
+
+declare function navigate<TPath extends RoutePath>(to: TPath, ...args: NavigateArgs<TPath>): void;
+declare function navigate(to: string, options?: NavigateOptions): void;
 
 declare function defineWorkspaces<TMap extends WorkspaceTemplateMap>(map: TMap): TMap;
 
@@ -214,6 +271,10 @@ interface AppConfig {
         cancel: () => void;
     }) => void;
     onNavigate?: (event: NavigationEvent) => void;
+    components?: {
+        /** Custom auth gate for direct-access workspace auth failures (spec §6.4). */
+        AuthGate?: React.ComponentType<AuthGateProps>;
+    };
 }
 interface AppProviderProps<TRoutes extends RouteMap = RouteMap, TWorkspaces extends WorkspaceTemplateMap = WorkspaceTemplateMap, TMeta extends Record<string, unknown> = Record<string, unknown>> {
     routes: TRoutes;
@@ -233,11 +294,10 @@ interface RouterViewProps {
     defaultLoading?: React.ComponentType | React.ReactNode;
     defaultError?: React.ComponentType<RouteErrorProps>;
 }
-declare function RouterView({ fallback, scrollRestoration, defaultLoading, defaultError, }: RouterViewProps): React.ReactElement;
+declare function RouterView({ fallback, scrollRestoration, defaultLoading: defaultLoadingProp, defaultError: defaultErrorProp, }: RouterViewProps): React.ReactElement;
 
-interface LinkToProps {
-    to: string;
-    params?: Record<string, string>;
+interface LinkToBaseProps<TPath extends string> {
+    to: TPath;
     replace?: boolean;
     state?: Record<string, unknown>;
     children: React.ReactNode;
@@ -249,6 +309,8 @@ interface LinkToProps {
     exactActiveStyle?: React.CSSProperties;
     href?: never;
 }
+/** Typed variant: route key + params enforced when routes are Registered. */
+type LinkToProps<TPath extends string = string> = LinkToBaseProps<TPath> & LinkParamsProp<TPath>;
 interface LinkHrefProps {
     href: string;
     children: React.ReactNode;
@@ -256,8 +318,8 @@ interface LinkHrefProps {
     style?: React.CSSProperties;
     to?: never;
 }
-type LinkProps = LinkToProps | LinkHrefProps;
-declare function Link(props: LinkProps): React.ReactElement;
+type LinkProps<TPath extends string = string> = LinkToProps<TPath> | LinkHrefProps;
+declare function Link<TPath extends RoutePath = RoutePath>(props: LinkProps<TPath>): React.ReactElement;
 
 /**
  * Renders all open workspaces in a stacked layout.
@@ -287,4 +349,4 @@ declare function SwipeContainer(): React.ReactElement;
  */
 declare function TabsContainer(): React.ReactElement;
 
-export { type AdapterType, type AppConfig, AppProvider, type AppProviderProps, Link, type LinkProps, type NavigationEvent, type NavigationType, type OpenWorkspaceInput, type QueryParamDescriptor, type QueryParamSchema, type RouteComponentProps, type RouteDefinition, type RouteErrorProps, type RouteMap, RouterView, type RouterViewProps, StackContainer, SwipeContainer, TabsContainer, type WorkspaceAuthRule, type WorkspaceChannel, type WorkspaceComponentProps, type WorkspaceDescriptor, type WorkspaceParams, type WorkspaceTemplate, type WorkspaceTemplateMap, defineRoutes, defineWorkspaces, navigate, notFound, useLocation, useMeta, useNavigation, useParams, usePrompt, useQueryState, useRoute, useSearchParams, useWorkspace, useWorkspaceChannel, useWorkspaces };
+export { type AdapterType, type AppConfig, AppProvider, type AppProviderProps, type AuthGateProps, type CredentialInput, type ExtractParams, Link, type LinkProps, type NavigateOptions, type NavigationContext, type NavigationEvent, type NavigationType, type OpenWorkspaceInput, type QueryParamDescriptor, type QueryParamSchema, type Register, type RegisteredRoutes, type RouteComponentProps, type RouteDefinition, type RouteErrorProps, type RouteMap, type RoutePath, RouterView, type RouterViewProps, StackContainer, SwipeContainer, TabsContainer, type WorkspaceAuthRule, type WorkspaceChannel, type WorkspaceComponentProps, type WorkspaceDescriptor, WorkspaceError, type WorkspaceParams, type WorkspaceTemplate, type WorkspaceTemplateMap, defineRoutes, defineWorkspaces, navigate, notFound, useLocation, useMeta, useNavigation, useParams, usePrompt, useQueryState, useRoute, useSearchParams, useWorkspace, useWorkspaceChannel, useWorkspaces };

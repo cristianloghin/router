@@ -1,4 +1,5 @@
 import type React from "react";
+import type { WorkspaceDescriptor } from "../workspaces/types";
 
 // ─── ExtractParams ────────────────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ export interface NavigationContext {
   params: Record<string, string>;
   searchParams: URLSearchParams;
   inWorkspace: boolean;
-  currentWorkspace: null; // Filled in by workspace layer
+  currentWorkspace: WorkspaceDescriptor | null;
 }
 
 export interface NavigateOptions {
@@ -66,6 +67,56 @@ export interface NavigateOptions {
   state?: Record<string, unknown>;
   params?: Record<string, string>;
 }
+
+// ─── Register (compile-time route typing, spec §4.2/§4.11) ───────────────────
+
+/**
+ * Module-augmentation registration point. Apps opt into compile-time route
+ * key/param checking by augmenting this interface with their route map:
+ *
+ * ```ts
+ * const routes = defineRoutes({ ... });
+ * declare module "@mikrostack/router" {
+ *   interface Register { routes: typeof routes }
+ * }
+ * ```
+ *
+ * When unregistered, route keys are plain strings (no checking).
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface Register {}
+
+/** The app's registered route map, or the loose RouteMap when unregistered. */
+export type RegisteredRoutes = Register extends { routes: infer R } ? R : RouteMap;
+
+/** Union of registered route keys; plain `string` when unregistered. */
+export type RoutePath = Register extends { routes: infer R }
+  ? keyof R & string
+  : string;
+
+/**
+ * Variadic argument tuple for navigate(): routes without params take optional
+ * options; routes with params require `options.params` (spec §4.2).
+ */
+export type NavigateArgs<TPath extends string> =
+  ExtractParams<TPath> extends Record<string, never>
+    ? [options?: NavigateOptions]
+    : [options: Omit<NavigateOptions, "params"> & { params: ExtractParams<TPath> }];
+
+/** Variadic argument tuple for buildPath(). */
+export type BuildPathArgs<TPath extends string> =
+  ExtractParams<TPath> extends Record<string, never>
+    ? [params?: Record<string, string>]
+    : [params: ExtractParams<TPath>];
+
+/**
+ * The `params` prop for `<Link>`: forbidden for param-less routes, required
+ * for parametric routes (spec §4.11).
+ */
+export type LinkParamsProp<TPath extends string> =
+  ExtractParams<TPath> extends Record<string, never>
+    ? { params?: Record<string, string> }
+    : { params: ExtractParams<TPath> };
 
 export type NavigationType =
   | "push"

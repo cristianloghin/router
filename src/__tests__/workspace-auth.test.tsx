@@ -3,14 +3,15 @@
  * Uses only public API imports — no internal modules.
  */
 import React from "react";
-import { describe, it, expect, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { renderHook, act, render, screen, fireEvent, within } from "@testing-library/react";
 
 import { AppProvider } from "../provider/AppProvider";
 import { defineRoutes } from "../router/RouteRegistry";
 import { defineWorkspaces } from "../workspaces/defineWorkspaces";
 import { useWorkspaces } from "../workspaces/hooks";
-import type { WorkspaceComponentProps } from "../workspaces/types";
+import { StackContainer } from "../components/containers/StackContainer";
+import type { WorkspaceComponentProps, WorkspaceDescriptor } from "../workspaces/types";
 
 // ─── Stub workspace component ─────────────────────────────────────────────────
 
@@ -182,28 +183,41 @@ describe("workspace-auth: time-limited", () => {
 
 // ─── credential ───────────────────────────────────────────────────────────────
 
-describe("workspace-auth: credential", () => {
-  it("open() succeeds when validate returns true for the default credential input", async () => {
-    // Default credential input is { username: "", password: "" }
+describe("workspace-auth: credential (built-in dialog)", () => {
+  async function submitDialog(username: string, password: string): Promise<void> {
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/username/i), { target: { value: username } });
+    fireEvent.change(within(dialog).getByLabelText(/password/i), { target: { value: password } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByText("Submit"));
+    });
+  }
+
+  it("open() shows the built-in credential dialog and resolves after submit", async () => {
     const workspaces = defineWorkspaces({
       credWs: {
         component: Stub,
-        auth: { type: "credential", validate: () => true },
+        auth: {
+          type: "credential",
+          validate: (input) => input.username === "user" && input.password === "pass",
+        },
       },
     });
     const { result } = renderHook(() => useWorkspaces(), {
       wrapper: makeWrapper(workspaces),
     });
 
-    let descriptor: Awaited<ReturnType<typeof result.current.open>> = undefined!;
-    await act(async () => {
-      descriptor = await result.current.open({ template: "credWs", title: "T", params: {} });
+    let openPromise!: Promise<WorkspaceDescriptor>;
+    act(() => {
+      openPromise = result.current.open({ template: "credWs", title: "T", params: {} });
     });
+    await submitDialog("user", "pass");
 
+    const descriptor = await openPromise;
     expect(descriptor.auth.granted).toBe(true);
   });
 
-  it("open() rejects with AUTH_FAILED when validate returns false", async () => {
+  it("open() rejects with AUTH_FAILED when validate rejects the submitted credentials", async () => {
     const workspaces = defineWorkspaces({
       credWs: {
         component: Stub,
@@ -214,14 +228,39 @@ describe("workspace-auth: credential", () => {
       wrapper: makeWrapper(workspaces),
     });
 
-    await act(async () => {
-      await expect(
-        result.current.open({ template: "credWs", title: "T", params: {} }),
-      ).rejects.toMatchObject({ code: "AUTH_FAILED" });
+    let openPromise!: Promise<WorkspaceDescriptor>;
+    act(() => {
+      openPromise = result.current.open({ template: "credWs", title: "T", params: {} });
     });
+    const assertion = expect(openPromise).rejects.toMatchObject({ code: "AUTH_FAILED" });
+    await submitDialog("user", "wrong");
+    await assertion;
   });
 
-  it("validate is called with the credential input", async () => {
+  it("open() rejects with AUTH_FAILED when the dialog is cancelled", async () => {
+    const workspaces = defineWorkspaces({
+      credWs: {
+        component: Stub,
+        auth: { type: "credential", validate: () => true },
+      },
+    });
+    const { result } = renderHook(() => useWorkspaces(), {
+      wrapper: makeWrapper(workspaces),
+    });
+
+    let openPromise!: Promise<WorkspaceDescriptor>;
+    act(() => {
+      openPromise = result.current.open({ template: "credWs", title: "T", params: {} });
+    });
+    const assertion = expect(openPromise).rejects.toMatchObject({ code: "AUTH_FAILED" });
+    const dialog = await screen.findByRole("dialog");
+    await act(async () => {
+      fireEvent.click(within(dialog).getByText("Cancel"));
+    });
+    await assertion;
+  });
+
+  it("validate receives the credentials typed into the dialog", async () => {
     const validateCalls: Array<{ username: string; password: string }> = [];
     const workspaces = defineWorkspaces({
       credWs: {
@@ -239,13 +278,14 @@ describe("workspace-auth: credential", () => {
       wrapper: makeWrapper(workspaces),
     });
 
-    await act(async () => {
-      await result.current.open({ template: "credWs", title: "T", params: {} });
+    let openPromise!: Promise<WorkspaceDescriptor>;
+    act(() => {
+      openPromise = result.current.open({ template: "credWs", title: "T", params: {} });
     });
+    await submitDialog("alice", "s3cret");
+    await openPromise;
 
-    expect(validateCalls).toHaveLength(1);
-    expect(validateCalls[0]).toHaveProperty("username");
-    expect(validateCalls[0]).toHaveProperty("password");
+    expect(validateCalls).toEqual([{ username: "alice", password: "s3cret" }]);
   });
 });
 
@@ -286,5 +326,156 @@ describe("workspace-auth: maxInstances", () => {
         result.current.open({ template: "limited", title: "Second", params: {} }),
       ).rejects.toMatchObject({ code: "MAX_INSTANCES_REACHED" });
     });
+  });
+});
+
+// ─── direct URL access (spec §6.2 / §6.4) ─────────────────────────────────────
+
+describe("workspace-auth: direct URL access", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const Content: React.ComponentType<WorkspaceComponentProps<any>> = ({ workspace }) => (
+    <div data-testid="ws-content">{workspace.title}</div>
+  );
+
+  it("renders the AuthGate instead of the workspace when unauthenticated", async () => {
+    window.history.replaceState(null, "", "/workspace/authWs/direct-1?title=Secret");
+    const workspaces = defineWorkspaces({
+      authWs: { component: Content, auth: { type: "authenticated" } },
+    });
+    render(
+      <AppProvider
+        routes={routes}
+        workspaces={workspaces}
+        config={{ adapter: "stack", auth: { isAuthenticated: () => false } }}
+      >
+        <StackContainer />
+      </AppProvider>,
+    );
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByTestId("ws-content")).toBeNull();
+  });
+
+  it("renders the workspace when direct access passes auth", async () => {
+    window.history.replaceState(null, "", "/workspace/authWs/direct-2?title=Secret");
+    const workspaces = defineWorkspaces({
+      authWs: { component: Content, auth: { type: "authenticated" } },
+    });
+    render(
+      <AppProvider
+        routes={routes}
+        workspaces={workspaces}
+        config={{ adapter: "stack", auth: { isAuthenticated: () => true } }}
+      >
+        <StackContainer />
+      </AppProvider>,
+    );
+    expect(await screen.findByTestId("ws-content")).toBeTruthy();
+  });
+
+  it("retry() unlocks the workspace once auth starts succeeding", async () => {
+    window.history.replaceState(null, "", "/workspace/authWs/direct-3?title=Secret");
+    let authed = false;
+    const workspaces = defineWorkspaces({
+      authWs: { component: Content, auth: { type: "authenticated" } },
+    });
+    render(
+      <AppProvider
+        routes={routes}
+        workspaces={workspaces}
+        config={{ adapter: "stack", auth: { isAuthenticated: () => authed } }}
+      >
+        <StackContainer />
+      </AppProvider>,
+    );
+    const gate = await screen.findByRole("alert");
+    authed = true;
+    await act(async () => {
+      fireEvent.click(within(gate).getByText("Retry"));
+    });
+    expect(await screen.findByTestId("ws-content")).toBeTruthy();
+  });
+
+  it("reconstructs typed params from the URL using the template schema", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/workspace/schemaWs/direct-4?title=T&count=5&ids=a&ids=b",
+    );
+    let seenParams: unknown = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ParamsProbe: React.ComponentType<WorkspaceComponentProps<any>> = ({ workspace }) => {
+      seenParams = workspace.params;
+      return <div data-testid="ws-content" />;
+    };
+    const workspaces = defineWorkspaces({
+      schemaWs: {
+        component: ParamsProbe,
+        auth: { type: "public" },
+        schema: { count: "number", ids: "string[]" },
+      },
+    });
+    render(
+      <AppProvider routes={routes} workspaces={workspaces} config={{ adapter: "stack" }}>
+        <StackContainer />
+      </AppProvider>,
+    );
+    await screen.findByTestId("ws-content");
+    expect(seenParams).toEqual({ count: 5, ids: ["a", "b"] });
+  });
+
+  it("supports a custom components.AuthGate override", async () => {
+    window.history.replaceState(null, "", "/workspace/authWs/direct-5?title=Secret");
+    const workspaces = defineWorkspaces({
+      authWs: { component: Content, auth: { type: "authenticated" } },
+    });
+    render(
+      <AppProvider
+        routes={routes}
+        workspaces={workspaces}
+        config={{
+          adapter: "stack",
+          auth: { isAuthenticated: () => false },
+          components: { AuthGate: () => <div data-testid="custom-gate" /> },
+        }}
+      >
+        <StackContainer />
+      </AppProvider>,
+    );
+    expect(await screen.findByTestId("custom-gate")).toBeTruthy();
+    expect(screen.queryByTestId("ws-content")).toBeNull();
+  });
+
+  it("credential AuthGate submit calls onCredentialAttempt and unlocks the workspace", async () => {
+    window.history.replaceState(null, "", "/workspace/credWs/direct-6?title=Locked");
+    const onCredentialAttempt = vi.fn();
+    const workspaces = defineWorkspaces({
+      credWs: {
+        component: Content,
+        auth: {
+          type: "credential",
+          validate: (input) => input.username === "u" && input.password === "p",
+        },
+      },
+    });
+    render(
+      <AppProvider
+        routes={routes}
+        workspaces={workspaces}
+        config={{
+          adapter: "stack",
+          auth: { isAuthenticated: () => false, onCredentialAttempt },
+        }}
+      >
+        <StackContainer />
+      </AppProvider>,
+    );
+    const form = await screen.findByLabelText(/credentials required/i);
+    fireEvent.change(within(form).getByLabelText(/username/i), { target: { value: "u" } });
+    fireEvent.change(within(form).getByLabelText(/password/i), { target: { value: "p" } });
+    await act(async () => {
+      fireEvent.click(within(form).getByText("Submit"));
+    });
+    expect(await screen.findByTestId("ws-content")).toBeTruthy();
+    expect(onCredentialAttempt).toHaveBeenCalledWith({ username: "u", password: "p" }, "direct-6");
   });
 });

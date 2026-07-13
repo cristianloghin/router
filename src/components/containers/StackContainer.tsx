@@ -1,6 +1,7 @@
 import React from "react";
 import { useWorkspaces } from "../../workspaces/hooks";
 import { useWorkspaceManagerContext, useWorkspaceTemplates } from "../../workspaces/context";
+import { GatedWorkspaceContent } from "../../workspaces/auth/AuthGate";
 import type { WorkspaceDescriptor, WorkspaceChannel } from "../../workspaces/types";
 
 // ─── StackContainer ───────────────────────────────────────────────────────────
@@ -65,7 +66,7 @@ function WorkspaceSlot({ workspace, channel, Component, onFocus, onClose }: Work
           Close
         </button>
       </div>
-      <Component workspace={workspace} channel={channel} />
+      <GatedWorkspaceContent workspace={workspace} channel={channel} Component={Component} />
     </div>
   );
 }

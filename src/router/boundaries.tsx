@@ -53,6 +53,18 @@ class RouteErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryStat
     }
   }
 
+  componentDidUpdate(prevProps: ErrorBoundaryProps): void {
+    // Boundary fibers persist across route changes (they are not keyed by
+    // route, so transitions can hold previous content) — clear any error
+    // state left by the previous route.
+    if (
+      prevProps.path !== this.props.path &&
+      (this.state.error !== null || this.state.isNotFound)
+    ) {
+      this.reset();
+    }
+  }
+
   reset(): void {
     this.setState({ error: null, isNotFound: false });
   }

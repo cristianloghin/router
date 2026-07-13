@@ -1,5 +1,6 @@
 import React from "react";
 import { useWorkspaces } from "../../workspaces/hooks";
+import { GatedWorkspaceContent } from "../../workspaces/auth/AuthGate";
 import { useWorkspaceManagerContext, useWorkspaceTemplates } from "../../workspaces/context";
 import type { WorkspaceChannel } from "../../workspaces/types";
 
@@ -50,7 +51,7 @@ export function TabsContainer(): React.ReactElement {
 
         return (
           <div data-workspace-id={currentWorkspace.id} data-role="tab-content">
-            <Component workspace={currentWorkspace} channel={channel} />
+            <GatedWorkspaceContent workspace={currentWorkspace} channel={channel} Component={Component} />
           </div>
         );
       })()}

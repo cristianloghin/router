@@ -1,6 +1,10 @@
 import { matchPath, specificity } from "./matcher";
 import type { RawRouteMap, RouteMap } from "./types";
 
+// Minimal ambient declaration — the project has no Node types; bundlers
+// statically replace the `process.env.NODE_ENV` token in browser builds.
+declare const process: { env?: { NODE_ENV?: string } } | undefined;
+
 // ─── defineRoutes ─────────────────────────────────────────────────────────────
 
 export function defineRoutes<TMap extends RawRouteMap>(map: TMap): RouteMap<TMap> {
@@ -68,8 +72,10 @@ export class RouteRegistry {
       }
     }
 
-    // Cycle detection in development
-    if (true) {
+    // Cycle detection: throws in development, silent no-op in production (spec §2.1).
+    const isProduction =
+      typeof process !== "undefined" && process.env?.NODE_ENV === "production";
+    if (!isProduction) {
       this.detectCycles();
     }
   }

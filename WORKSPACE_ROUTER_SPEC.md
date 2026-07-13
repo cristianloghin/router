@@ -2,6 +2,10 @@
 
 > **Purpose of this document:** A complete implementation spec for Claude Code. Every section is a constraint or decision, not a suggestion. Where something is intentionally left to the implementer, it is marked `[IMPL]`.
 
+> **Implementation status (audited and completed 2026-07-13 against `src/`):** each section heading below is marked
+> **✅ DONE** (verified in code) · **⚠️ PARTIAL** (gap noted under the heading) · **❌ NOT IMPLEMENTED**.
+> Unmarked sections are narrative/reference and have nothing to verify.
+
 ---
 
 ## 0. Motivation and benefits
@@ -69,7 +73,9 @@ A single React library that unifies browser routing and "workspace" navigation �
 
 ---
 
-## 1. Package structure
+## 1. Package structure — ⚠️ PARTIAL (file layout only)
+
+> **Status:** all behavior exists; only the file layout differs from this tree: transition logic lives in `components/RouterView.tsx` (no separate `router/transitions.ts`), there is no `utils/url.ts`, the router store lives in `router/RouterContext.ts` with extra `router/context.ts` / `router/registryContext.ts` context modules, and `workspaces/auth/` additionally contains `AuthGate.tsx` and `credentialRequests.ts`.
 
 ```
 src/
@@ -115,7 +121,9 @@ src/
 
 ## 2. Core type system
 
-### 2.1 Route definition
+### 2.1 Route definition — ✅ DONE
+
+> **Status:** types, `defineRoutes` validation, `ExtractParams`, parent inference (segment boundary, longest prefix, `parent: null`), inside-out outlet rendering, `guard` evaluation (false blocks, string redirects, async supported, throwing/rejecting blocks), the full `loading`/`error` fallback chain (route → RouterView prop → AppConfig → library default), and dev-only cycle detection are all implemented. Note: duplicate route keys cannot be detected at runtime — later keys in an object literal silently overwrite earlier ones before `defineRoutes` sees them.
 
 Routes are declared via `defineRoutes`. The **key is the path** — no separate `path` field. `ExtractParams` runs directly on the key string. The result is a flat map regardless of nesting depth, which keeps the type system simple and all addressing uniform.
 
@@ -245,7 +253,7 @@ Example: URL `/settings/profile` matches `["/settings", "/settings/profile"]`. `
 
 URL `/settings` with an `index` component: `SettingsIndex` renders as the `outlet` of `SettingsLayout`.
 
-### 2.2 Workspace template definition
+### 2.2 Workspace template definition — ✅ DONE
 
 Workspace templates are declared with an explicit params type. The template key becomes the type discriminant.
 
@@ -287,7 +295,7 @@ const workspaces = {
 } satisfies WorkspaceTemplateMap;
 ```
 
-### 2.3 WorkspaceDescriptor
+### 2.3 WorkspaceDescriptor — ✅ DONE
 
 ```typescript
 interface WorkspaceDescriptor<TParams extends WorkspaceParams = WorkspaceParams> {
@@ -304,7 +312,9 @@ interface WorkspaceDescriptor<TParams extends WorkspaceParams = WorkspaceParams>
 type WorkspaceParams = Record<string, string | number | boolean | string[] | number[]>;
 ```
 
-### 2.4 Navigation context
+### 2.4 Navigation context — ✅ DONE
+
+> **Status:** the type exists and is populated (current path, params, search params, `inWorkspace`, `currentWorkspace`) for every route-guard evaluation.
 
 ```typescript
 interface NavigationContext {
@@ -323,7 +333,11 @@ interface NavigationContext {
 
 ---
 
-## 3. AppProvider — single root provider
+## 3. AppProvider — single root provider — ⚠️ PARTIAL
+
+> **Status:** everything implemented — `maxWorkspaces` (default 10, throws `MAX_WORKSPACES_REACHED`), `defaultLoading`/`defaultError` via context, `auth.onCredentialAttempt`, `components.AuthGate`, sessionStorage persistence, `onBeforeNavigate`/`onNavigate` including `workspace-open`/`workspace-close` event types (focus counts as `workspace-open`) — with two deliberate deviations:
+> - **`adapter: "auto"` never selects tabs** (recorded in PRE_ADOPTION_CHANGE_PLAN §6): auto is swipe (coarse pointer) or stack only; `window.open`-based UX must be opted into explicitly.
+> - **`cancel()` on a workspace navigation blocks only the URL change** — the adapter state mutation (e.g. workspace opened) has already happened by the time the navigation event fires.
 
 The library exposes exactly one provider. No nesting, no ordering requirements.
 
@@ -440,7 +454,9 @@ Usage:
 </AppProvider>
 ```
 
-### 3.1 RouterView
+### 3.1 RouterView — ✅ DONE
+
+> **Status:** rendering, `fallback`, matching, wildcard capture, index components, workspace-URL passthrough, per-route boundaries, `scrollRestoration`, focus management, and transition semantics are all implemented. Route changes are applied inside `React.startTransition` (mirrored local state — `useSyncExternalStore` updates can't be transitions directly), the previous route stays visible while a new lazy route loads, and `useLocation().isTransitioning` is driven by the pending flag. Boundary fibers persist per nesting depth (not keyed by route) so transitions can hold previous content; error state resets on path change.
 
 `RouterView` renders the currently matched route chain. Workspace rendering is managed internally by the adapter's container alongside `RouterView`.
 
@@ -540,7 +556,9 @@ function SettingsLayout({ outlet }: RouteComponentProps<{}>) {
 | `useMeta()` | Meta state changes | App-wide typed config |
 | `usePrompt(message, when)` | — | Unsaved-changes navigation guard |
 
-### 4.2 `useNavigation()`
+### 4.2 `useNavigation()` — ✅ DONE
+
+> **Status:** stable refs and the typed variadic overload are implemented. Compile-time route-key/param checking activates via the `Register` interface (module augmentation: `declare module "@mikrostack/router" { interface Register { routes: typeof routes } }`); unregistered apps get plain-string keys. The raw-string escape-hatch overload remains.
 
 Stable refs only. Calling this hook never causes a re-render.
 
@@ -574,7 +592,9 @@ interface NavigateOptions {
 
 The variadic overload on `navigate` enforces params at the type level: routes with no params require no `params` argument; routes with params require it. The raw string overload remains as an escape hatch for external URLs or dynamically constructed paths.
 
-### 4.3 `useLocation()`
+### 4.3 `useLocation()` — ✅ DONE
+
+> **Status:** all five fields implemented; `isTransitioning` is driven by RouterView's `useTransition` pending flag (see §3.1).
 
 ```typescript
 interface UseLocationReturn {
@@ -597,7 +617,7 @@ interface UseLocationReturn {
 function useLocation(): UseLocationReturn;
 ```
 
-### 4.4 `useRoute(path)`
+### 4.4 `useRoute(path)` — ✅ DONE
 
 Returns match information for a specific path pattern against the current URL. Re-renders only when the match status or matched params change.
 
@@ -614,7 +634,7 @@ function useRoute<TPath extends keyof TRoutes>(
 
 `exact` distinguishes `/settings` being the active route (exact) from `/settings` being an ancestor of the active route `/settings/profile` (not exact). Useful for active link styling on parent nav items — you may want a different style for "I am this page" vs "I contain the current page".
 
-### 4.5 `useParams(path)`
+### 4.5 `useParams(path)` — ✅ DONE
 
 ```typescript
 // Returns typed params for the given path key.
@@ -623,7 +643,7 @@ function useRoute<TPath extends keyof TRoutes>(
 function useParams<TPath extends keyof TRoutes>(path: TPath): ExtractParams<TPath>;
 ```
 
-### 4.6 `useSearchParams()`
+### 4.6 `useSearchParams()` — ✅ DONE
 
 ```typescript
 function useSearchParams(): [
@@ -644,7 +664,7 @@ setParams(prev => {
 });
 ```
 
-### 4.7 `useMeta()`
+### 4.7 `useMeta()` — ✅ DONE
 
 ```typescript
 function useMeta<TMeta extends Record<string, unknown>>(): [TMeta, (patch: Partial<TMeta>) => void];
@@ -652,7 +672,7 @@ function useMeta<TMeta extends Record<string, unknown>>(): [TMeta, (patch: Parti
 
 Separated from navigation concerns. Only re-renders when meta state changes.
 
-### 4.8 `useQueryState(schema)`
+### 4.8 `useQueryState(schema)` — ✅ DONE
 
 Typed URL state backed by search params. The schema declares the name, type, and optional default value of each param. The library reuses the same serialization layer as workspace params (§5.3).
 
@@ -699,7 +719,9 @@ setFilters({ tags: ["react"] });   // arrays serialize to repeated keys
 - The setter always does a `replace` navigation (not `push`) — filter changes should not pollute the history stack.
 - Multiple `useQueryState` calls in the same component or tree with overlapping keys are additive — they read and write the same underlying search params.
 
-### 4.9 `usePrompt(message, when)`
+### 4.9 `usePrompt(message, when)` — ✅ DONE
+
+> **Status:** `navigate()`, `<Link>`, `back()`, and workspace operations are all intercepted via `window.confirm`; `beforeunload` is registered/removed with `when` and sets `returnValue`.
 
 Registers a navigation guard at the component level. Blocks in-app navigation and browser tab close when `when` is true.
 
@@ -725,7 +747,7 @@ function EditProfileRoute() {
 }
 ```
 
-### 4.10 `notFound()`
+### 4.10 `notFound()` — ✅ DONE
 
 A function route components call to signal that the matched URL is structurally valid but the resource does not exist. Causes `RouterView` to render the `fallback` with the attempted path, as if no route had matched.
 
@@ -743,7 +765,9 @@ function CameraDetailRoute({ params }: RouteComponentProps<{ id: string }>) {
 
 `notFound()` throws a sentinel value caught by `RouterView`'s internal error boundary, which then renders the fallback. This means it works correctly inside async rendering and inside Suspense — the throw propagates up the same way any render-time throw does.
 
-### 4.11 `<Link>`
+### 4.11 `<Link>` — ✅ DONE
+
+> **Status:** all runtime behavior plus compile-time typing. `to` is constrained to registered route keys and `params` follows the conditional `LinkParamsProp` type when routes are registered via the `Register` interface (see §4.2); unregistered apps keep loose string typing. `href` escape hatch unchanged.
 
 ```typescript
 interface LinkProps<TPath extends keyof TRoutes> {
@@ -781,7 +805,9 @@ type LinkParams<TPath extends keyof TRoutes> =
 
 `<Link>` intercepts clicks but passes through when modifier keys are held (Cmd, Ctrl, Shift, Alt) — standard browser behaviour for opening in new tabs.
 
-### 4.12 `navigate()` — imperative, outside React
+### 4.12 `navigate()` — imperative, outside React — ✅ DONE
+
+> **Status:** `AppProvider` registers the store on mount (`setActiveStore`) and unregisters on unmount; the export navigates while a provider is mounted and is a no-op otherwise. Typed with the same `Register`-driven overloads as `useNavigation().navigate`.
 
 ```typescript
 // Usable outside React components (service workers, event handlers, etc.).
@@ -795,7 +821,9 @@ function navigate<TPath extends keyof TRoutes>(
 function navigate(to: string, options?: NavigateOptions): void;
 ```
 
-### 4.13 History stack
+### 4.13 History stack — ✅ DONE
+
+> **Status:** fully implemented. Workspace close reads the origin from `window.history.state` when it belongs to the closing workspace (in-memory origins cover background/persisted workspaces), replaces the workspace URL, and leaves the session stack untouched — `canGoBack` after close reflects the pre-open state. The origin captured at `open()` is the router's route path, never another workspace URL.
 
 The library maintains a session-scoped history stack alongside `window.history`.
 
@@ -816,7 +844,9 @@ history.state = { origin: "/settings/profile", workspaceId: "uuid" }
 
 ## 5. Workspace API
 
-### 5.1 `useWorkspaces<TWorkspaces>()`
+### 5.1 `useWorkspaces<TWorkspaces>()` — ✅ DONE
+
+> **Status:** full return shape and internal navigation on `open`/`focus`/`close`/`updateParams` verified (`src/workspaces/hooks.ts`, `WorkspaceManager.ts`).
 
 ```typescript
 interface UseWorkspacesReturn<TWorkspaces extends WorkspaceTemplateMap> {
@@ -880,7 +910,7 @@ type InferParams<T> = T extends WorkspaceTemplate<infer P> ? P : never;
 - `updateParams()` replaces the current URL entry in-place (equivalent to `navigate(url, { replace: true })`). Callers never call `navigate()` after this either.
 - The tabs adapter special case (`adapter.type !== "tabs"`) is gone from call sites. The adapter handles it internally.
 
-### 5.2 `useWorkspace(id)`
+### 5.2 `useWorkspace(id)` — ✅ DONE
 
 Per-workspace reactive hook. Replaces `useWorkspaceParams`.
 
@@ -895,7 +925,9 @@ function useWorkspace<TParams extends WorkspaceParams>(
 } | null;  // null if workspace with this id does not exist
 ```
 
-### 5.3 Param serialization
+### 5.3 Param serialization — ✅ DONE
+
+> **Status:** serialization, schema-driven deserialization (used when reconstructing a workspace from a directly-loaded URL — `WorkspaceManager.descriptorFromLocation`; no schema → all values strings), and sessionStorage persistence with `ws:v{persistVersion}` version-mismatch discard are all implemented.
 
 All workspace params are serialized to/from URL search params. The serialization layer handles arrays and primitive types transparently.
 
@@ -921,7 +953,7 @@ interface WorkspaceTemplate<TParams> {
 
 **Persistence versioning:** When `persistWorkspaces: true`, the serialized state is stored in `sessionStorage` with the key `ws:v{persistVersion}`. On load, if the version does not match, stored state is discarded and the app starts fresh. No migration path in v1.
 
-### 5.4 Workspace URL format
+### 5.4 Workspace URL format — ✅ DONE
 
 ```
 /workspace/{template}/{id}?title={title}&{...params}
@@ -937,7 +969,9 @@ Changed from current: `id` is now a path segment, not a query param. This makes 
 
 Auth rules are declared per template in the `WorkspaceTemplateMap`. They are evaluated by the library when `open()` is called and when a workspace URL is loaded directly (tabs adapter or page reload with persistence).
 
-### 6.1 Auth rule types
+### 6.1 Auth rule types — ✅ DONE
+
+> **Status:** all five rule types evaluated correctly by `src/workspaces/auth/WorkspaceGuard.ts`, including function-form `expiresAt` and custom-check throw → false.
 
 ```typescript
 type WorkspaceAuthRule =
@@ -961,7 +995,9 @@ interface AuthCheckContext {
 }
 ```
 
-### 6.2 Auth evaluation
+### 6.2 Auth evaluation — ✅ DONE
+
+> **Status:** the `open()` path evaluates auth before the adapter opens (credential rules prompt via the built-in dialog; cancel fails auth), and direct URL access re-evaluates with `isDirectAccess: true` — the workspace renders behind the AuthGate until granted. Naming note: rejections use `WorkspaceError` with code `AUTH_FAILED`, not a separate `WorkspaceAuthError` class.
 
 When `open()` is called:
 
@@ -975,7 +1011,9 @@ When a workspace URL is loaded directly (tabs adapter, or page reload):
 - Same evaluation, but `isDirectAccess: true` is set in the context.
 - `authenticated` type in direct access: calls `isAuthenticated`. If false, the workspace renders an `AuthGate` component (see §6.4) instead of the template component. The workspace is not closed — access may be granted by the user logging in.
 
-### 6.3 App-supplied auth callbacks
+### 6.3 App-supplied auth callbacks — ✅ DONE
+
+> **Status:** `isAuthenticated` is wired into the guard; `onCredentialAttempt` fires with the submitted input and workspace id on every credential submission (built-in dialog at `open()` time, and AuthGate retry on direct access).
 
 ```typescript
 interface AppConfig {
@@ -996,7 +1034,9 @@ interface AppConfig {
 }
 ```
 
-### 6.4 AuthGate
+### 6.4 AuthGate — ✅ DONE
+
+> **Status:** all containers render workspace content through a gate: ungranted workspaces show the built-in unstyled `DefaultAuthGate` (credential form for credential rules, retry affordance otherwise; `src/workspaces/auth/AuthGate.tsx`), overridable via `AppConfig.components.AuthGate` with the exact `{workspace, authRule, retry}` props below.
 
 When auth fails for a directly-accessed workspace (tabs adapter), the library renders an `AuthGate` in place of the workspace component. The `AuthGate` is minimal by default but can be replaced:
 
@@ -1027,7 +1067,7 @@ The channel is backed by `@mikrostack/chbus`. Each workspace gets a `NamespacedB
 
 **Note on shared state:** The previous design included a `channel.state` reactive store primitive. This is removed. Persistent shared state between root and a workspace should use `updateParams()`, which already syncs via events and serializes to the URL. `channel` is for transient commands and notifications only — things that are fire-and-forget, not things that need to survive a reload.
 
-### 7.1 Channel contracts
+### 7.1 Channel contracts — ✅ DONE (consumer-side convention; types flow through `WorkspaceChannel` generics)
 
 Each workspace template should declare its message contract types in a `{template}.types.ts` file alongside its component. Both the workspace component and root consumers import from this file.
 
@@ -1046,7 +1086,9 @@ export type FeedToRootContract = ChannelContract<{
 }>;
 ```
 
-### 7.2 WorkspaceChannel type
+### 7.2 WorkspaceChannel type — ✅ DONE
+
+> **Status:** `NamespacedBus` scoped `workspace:{id}` created at `open()`; `inbound` = root-to-ws, `outbound` = ws-to-root, passed to workspace components via `{workspace, channel}` props in all three containers.
 
 `WorkspaceManager` creates the `NamespacedBus` and wires two channels on it — one for each direction — then passes the pair to the workspace component via `WorkspaceComponentProps`.
 
@@ -1071,7 +1113,9 @@ interface WorkspaceChannel<
 
 `Channel<T>` is the chbus `Channel` type. The workspace component calls `.on()` / `.onAsync()` on `inbound` and `.emit()` / `.emitAsync()` on `outbound` directly — no wrapper API.
 
-### 7.3 Root-side channel access
+### 7.3 Root-side channel access — ✅ DONE
+
+> **Status:** `useWorkspaceChannel` returns the correctly flipped pair; `null` for unknown/closed workspaces.
 
 ```typescript
 // Returns the same NamespacedBus pair as inside the workspace, from the root side.
@@ -1099,7 +1143,7 @@ Root side:        channel.outbound → sends to workspace    (root-to-ws channel
 
 Both sides call `.on()` on their `inbound` and `.emit()` on their `outbound`. The library wires the underlying chbus channels so that what the workspace emits on `outbound` arrives at root's `inbound`, and vice versa. Integration tests must verify this wiring explicitly — it is the most likely source of confusion during implementation.
 
-### 7.4 Observability
+### 7.4 Observability — ✅ DONE (external `bus` prop used when provided, internal `createBus()` otherwise)
 
 Because the channel uses chbus, all workspace message traffic is automatically visible via the bus's debug wiretap. `WorkspaceManager` exposes the underlying bus:
 
@@ -1123,13 +1167,15 @@ createLogger(bus); // logs all workspace channel traffic to console in developme
 <AppProvider bus={bus} routes={routes} workspaces={workspaces} ...>
 ```
 
-### 7.5 Cross-tab channel (BrowserTabAdapter)
+### 7.5 Cross-tab channel (BrowserTabAdapter) — ✅ DONE
+
+> **Status:** under the tabs adapter, `WorkspaceManager` creates channels with cross-tab bridging: every local emit is mirrored over a per-workspace `BroadcastChannel` (`chbus:workspace:{id}`) and re-emitted on the receiving tab's local chbus channels (remote re-emits bypass the bridge — loop-safe). The API surface inside components is unchanged.
 
 When `adapterType === "tabs"`, workspaces run in a separate browser tab. The `NamespacedBus` channels are bridged over `BroadcastChannel` automatically by `WorkspaceManager`. The API surface inside the workspace component is identical — the transport is an implementation detail.
 
 **Constraint:** Messages must be structured-clone-serializable (no functions, class instances, or DOM nodes). This constraint is the same as chbus's cross-tab constraint and does not require any additional enforcement.
 
-### 7.6 Channel lifetime
+### 7.6 Channel lifetime — ✅ DONE (created at `open()`, destroyed before adapter close resolves; restore recreates pairs)
 
 - The `NamespacedBus` for a workspace is created when `open()` is called.
 - It is destroyed when `close()` resolves — all subscribers are cleaned up.
@@ -1141,7 +1187,7 @@ When `adapterType === "tabs"`, workspaces run in a separate browser tab. The `Na
 
 The adapter is selected once at `AppProvider` mount and does not change at runtime. The three adapter types are preserved from the current codebase with the following changes:
 
-### 8.1 Adapter interface (internal)
+### 8.1 Adapter interface (internal) — ✅ DONE (interface matches exactly; adapters return no URLs)
 
 ```typescript
 interface WorkspaceAdapter {
@@ -1161,7 +1207,9 @@ interface WorkspaceAdapter {
 
 **Key change:** Adapters no longer return URLs. URL construction is handled by `WorkspaceManager` after the adapter resolves. Navigation is triggered inside `WorkspaceManager`, not by callers.
 
-### 8.2 Adapter responsibilities
+### 8.2 Adapter responsibilities — ⚠️ PARTIAL
+
+> **Status:** ownership split holds for stack/swipe. Exception: **`BrowserTabAdapter` builds its own URL internally** for `window.open()` (it cannot defer to the manager's navigate), so URL construction is not exclusively the manager's under tabs.
 
 | Concern | Owner |
 |---|---|
@@ -1172,19 +1220,21 @@ interface WorkspaceAdapter {
 | Auth evaluation | WorkspaceManager |
 | Channel management (chbus NamespacedBus per workspace) | WorkspaceManager |
 
-### 8.3 StackAdapter
+### 8.3 StackAdapter — ✅ DONE
 
 - Manages workspaces as an ordered array with a `currentIndex`.
 - `close(id, autoFocus=true)`: removes from array; if autoFocus, focuses the adjacent workspace (prefer next, fall back to previous).
 - Emits `workspace:focused` after close when autoFocus results in a focus.
 
-### 8.4 SwipeAdapter
+### 8.4 SwipeAdapter — ✅ DONE (incl. index clamping, no `workspace:focused` from `setCurrentIndex`)
 
 - Identical to StackAdapter in lifecycle.
 - Exposes `getCurrentIndex()` / `setCurrentIndex(n)` for scroll-driven navigation — these update internal state without going through the full `focus()` async path.
 - Container uses these during scroll; `focus()` is used for explicit button-driven navigation.
 
-### 8.5 BrowserTabAdapter
+### 8.5 BrowserTabAdapter — ✅ DONE
+
+> **Status:** `window.open`, focus/close no-op semantics, BroadcastChannel state sync, and URL-based `getCurrent()` are implemented; the debug `console.log` is removed. In a freshly opened tab, the descriptor is reconstructed from the URL by `WorkspaceManager.resolveDirectAccess()` (schema-driven, spec §5.3) and adopted into the adapter, so `getCurrent()` resolves correctly at the system level.
 
 - `open(descriptor)`: calls `window.open(url)`. Returns immediately.
 - `focus(id)`: no-op (browsers cannot programmatically focus other tabs). Emits `workspace:focused` for local consistency.
@@ -1196,7 +1246,9 @@ Remove the debug `console.log("received opened!!!")` from `BroadcastChannel` lis
 
 ---
 
-## 9. Event system
+## 9. Event system — ✅ DONE
+
+> **Status:** all seven event variants are live: adapter events pass through the manager, `workspace:auth-failed` is emitted on guard denial (open, direct access, and retry), and `workspace:error` is emitted when an adapter operation fails. `useSyncExternalStore` throughout.
 
 Events flow from adapter → WorkspaceManager → subscribers. Events are typed and exhaustive.
 
@@ -1218,7 +1270,9 @@ type WorkspaceEvent =
 
 ---
 
-## 10. Error handling
+## 10. Error handling — ✅ DONE
+
+> **Status:** all five codes are thrown where specified: `AUTH_FAILED`, `MAX_INSTANCES_REACHED`, `MAX_WORKSPACES_REACHED` (global limit, default 10), `WORKSPACE_NOT_FOUND`, and `ADAPTER_ERROR` (wraps adapter open/focus/close failures; also used for an unknown template key at `open()`). Errors propagate to callers unswallowed.
 
 All async workspace operations (`open`, `focus`, `close`) reject with typed errors:
 
@@ -1240,7 +1294,7 @@ type WorkspaceErrorCode =
 
 ---
 
-## 11. Meta state
+## 11. Meta state — ✅ DONE
 
 App-wide typed meta state is retained on `AppProvider`. It is exposed via `useMeta()` (see §4.7). It is not persisted. It is not related to workspace params.
 
@@ -1532,7 +1586,9 @@ These are not implementation tasks — they are a reference for the consuming ap
 
 ---
 
-## 15. Resolved implementation decisions
+## 15. Resolved implementation decisions — ✅ DONE
+
+> **Status:** all six decisions are honored in code, including decision 4 — the built-in credential dialog and `DefaultAuthGate` ship semantic, accessible, unstyled markup only.
 
 The following questions were raised during spec review and are now closed. These are not open for re-interpretation during implementation.
 

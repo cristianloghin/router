@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useTransition } from "react";
 import { useSyncExternalStore } from "react";
 import { useRouterStore } from "../router/context";
 import { useRouteRegistry } from "../router/registryContext";
+import { useAppConfig } from "../provider/context";
 import { matchPath } from "../router/matcher";
 import { RouteBoundary } from "../router/boundaries";
 import type { RouteErrorProps } from "../router/types";
@@ -20,20 +21,44 @@ export interface RouterViewProps {
 export function RouterView({
   fallback,
   scrollRestoration = "top",
-  defaultLoading,
-  defaultError,
+  defaultLoading: defaultLoadingProp,
+  defaultError: defaultErrorProp,
 }: RouterViewProps): React.ReactElement {
   const store = useRouterStore();
   const registry = useRouteRegistry();
+  const appConfig = useAppConfig();
+  // Fallback resolution (spec §2.1): route-level → RouterView prop → AppConfig default.
+  const defaultLoading = defaultLoadingProp ?? appConfig.defaultLoading;
+  const defaultError = defaultErrorProp ?? appConfig.defaultError;
   const containerRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef<Map<string, number>>(new Map());
   const [notFoundPath, setNotFoundPath] = useState<string | null>(null);
 
-  const path = useSyncExternalStore(
+  const storePath = useSyncExternalStore(
     (cb) => store.subscribe(cb),
     () => store.getSnapshot().path,
     () => store.getSnapshot().path,
   );
+
+  // Transition semantics (spec §3.1): route changes are applied inside
+  // React.startTransition via local state, so the previous route stays
+  // visible while a new lazy route loads. useSyncExternalStore updates
+  // cannot themselves be transitions, hence the mirrored state.
+  const [path, setPath] = useState(storePath);
+  const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (storePath !== path) {
+      startTransition(() => {
+        setPath(storePath);
+      });
+    }
+  }, [storePath, path]);
+
+  // Drive useLocation().isTransitioning from the pending flag.
+  useEffect(() => {
+    store.setTransitioning(isPending);
+  }, [isPending, store]);
 
   const prevPathRef = useRef<string>(path);
 
@@ -120,9 +145,12 @@ export function RouterView({
       <InnerComponent params={params} outlet={resolvedOutlet} />
     );
 
+    // NOTE: deliberately not keyed by route — the boundary fiber persists per
+    // nesting depth so startTransition can keep the previous route visible
+    // while a new lazy route loads (a newly mounted Suspense boundary would
+    // show its fallback immediately instead).
     outlet = (
       <RouteBoundary
-        key={capturedKey}
         path={capturedKey}
         onNotFound={() => { setNotFoundPath(path); }}
         {...(def.loading !== undefined ? { loading: def.loading } : {})}

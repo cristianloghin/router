@@ -27,6 +27,22 @@ export interface WorkspaceChannelPair<
 
 // ─── createWorkspaceChannel ───────────────────────────────────────────────────
 
+export interface CreateWorkspaceChannelOptions {
+  /**
+   * Bridge channel traffic across browser tabs over BroadcastChannel
+   * (spec §7.5) — enabled by WorkspaceManager under the tabs adapter.
+   */
+  crossTab?: boolean;
+}
+
+type BridgedChannelName = "root-to-ws" | "ws-to-root";
+
+interface CrossTabMessage {
+  channel: BridgedChannelName;
+  action: string;
+  payload: unknown;
+}
+
 /**
  * Creates an isolated bidirectional channel pair for a workspace.
  *
@@ -42,28 +58,82 @@ export interface WorkspaceChannelPair<
  * From the root application's perspective (useWorkspaceChannel):
  *   channel.outbound = root-to-ws   (emit here to command the workspace)
  *   channel.inbound  = ws-to-root   (listen here for workspace events)
+ *
+ * With crossTab enabled, every local emit is mirrored to the other tabs over
+ * a per-workspace BroadcastChannel; incoming mirrored messages are re-emitted
+ * on the local chbus channels. Messages must be structured-clone-serializable
+ * (spec §7.5) — the same constraint chbus imposes.
  */
 export function createWorkspaceChannel<
   TRootToWorkspace extends ChannelContract = ChannelContract,
   TWorkspaceToRoot extends ChannelContract = ChannelContract,
->(workspaceId: string, bus: Bus): WorkspaceChannelPair<TRootToWorkspace, TWorkspaceToRoot> {
+>(
+  workspaceId: string,
+  bus: Bus,
+  options: CreateWorkspaceChannelOptions = {},
+): WorkspaceChannelPair<TRootToWorkspace, TWorkspaceToRoot> {
   const ns = bus.namespace(`workspace:${workspaceId}`);
 
   const rootToWs = ns.channel<TRootToWorkspace>("root-to-ws");
   const wsToRoot = ns.channel<TWorkspaceToRoot>("ws-to-root");
 
+  let broadcast: BroadcastChannel | null = null;
+  let exposedRootToWs = rootToWs;
+  let exposedWsToRoot = wsToRoot;
+
+  if (options.crossTab && typeof BroadcastChannel !== "undefined") {
+    broadcast = new BroadcastChannel(`chbus:workspace:${workspaceId}`);
+    broadcast.onmessage = (event: MessageEvent) => {
+      const message = event.data as CrossTabMessage | null;
+      if (!message || (message.channel !== "root-to-ws" && message.channel !== "ws-to-root")) {
+        return;
+      }
+      // Remote messages re-emit on the RAW local channel (not the bridged
+      // proxy) so they are never re-broadcast — this is the loop guard.
+      const target = message.channel === "root-to-ws" ? rootToWs : wsToRoot;
+      (target.emit as (action: string, payload: unknown) => void)(
+        message.action,
+        message.payload,
+      );
+    };
+    exposedRootToWs = bridgeEmit(rootToWs, "root-to-ws", broadcast);
+    exposedWsToRoot = bridgeEmit(wsToRoot, "ws-to-root", broadcast);
+  }
+
   return {
     workspace: {
-      inbound: rootToWs,
-      outbound: wsToRoot,
+      inbound: exposedRootToWs,
+      outbound: exposedWsToRoot,
     },
     root: {
-      outbound: rootToWs,
-      inbound: wsToRoot,
+      outbound: exposedRootToWs,
+      inbound: exposedWsToRoot,
     },
     destroy() {
+      broadcast?.close();
       rootToWs.destroy();
       wsToRoot.destroy();
     },
   };
+}
+
+/** Wraps a channel so every emit is also posted to the BroadcastChannel. */
+function bridgeEmit<T extends ChannelContract>(
+  channel: Channel<T>,
+  name: BridgedChannelName,
+  broadcast: BroadcastChannel,
+): Channel<T> {
+  return new Proxy(channel, {
+    get(target, prop, receiver) {
+      if (prop === "emit" || prop === "emitAsync") {
+        return (action: string, payload: unknown) => {
+          broadcast.postMessage({ channel: name, action, payload } satisfies CrossTabMessage);
+          return (
+            target[prop as "emit"] as unknown as (action: string, payload: unknown) => unknown
+          )(action, payload);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
 }

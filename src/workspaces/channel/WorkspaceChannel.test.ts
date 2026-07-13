@@ -173,3 +173,153 @@ describe("createWorkspaceChannel: isolation", () => {
     expect(pairA.workspace.outbound).not.toBe(pairB.workspace.outbound);
   });
 });
+
+// ─── cross-tab bridging (spec §7.5) ──────────────────────────────────────────
+
+class MockBroadcastChannel {
+  static instances: MockBroadcastChannel[] = [];
+  name: string;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  postMessage = vi.fn((data: unknown) => {
+    for (const other of MockBroadcastChannel.instances) {
+      if (other !== this && other.name === this.name && other.onmessage) {
+        other.onmessage(new MessageEvent("message", { data }));
+      }
+    }
+  });
+  close = vi.fn();
+
+  constructor(name: string) {
+    this.name = name;
+    MockBroadcastChannel.instances.push(this);
+  }
+}
+
+describe("createWorkspaceChannel: cross-tab bridging", () => {
+  beforeEach(() => {
+    MockBroadcastChannel.instances = [];
+    vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+    return () => vi.unstubAllGlobals();
+  });
+
+  it("does not create a BroadcastChannel by default", () => {
+    const { bus } = makeBus();
+    createWorkspaceChannel("ws-1", bus);
+    expect(MockBroadcastChannel.instances).toHaveLength(0);
+  });
+
+  it("crossTab: true creates a per-workspace BroadcastChannel", () => {
+    const { bus } = makeBus();
+    createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    expect(MockBroadcastChannel.instances).toHaveLength(1);
+    expect(MockBroadcastChannel.instances[0]!.name).toBe("chbus:workspace:ws-1");
+  });
+
+  it("workspace outbound emit is mirrored as a ws-to-root message", () => {
+    const { bus } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    (pair.workspace.outbound.emit as (a: string, p: unknown) => void)("motion", { cam: "c1" });
+    const bc = MockBroadcastChannel.instances[0]!;
+    expect(bc.postMessage).toHaveBeenCalledWith({
+      channel: "ws-to-root",
+      action: "motion",
+      payload: { cam: "c1" },
+    });
+  });
+
+  it("root outbound emit is mirrored as a root-to-ws message and still emits locally", () => {
+    const { bus, channels } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    (pair.root.outbound.emit as (a: string, p: unknown) => void)("focus", { cam: "c2" });
+    const bc = MockBroadcastChannel.instances[0]!;
+    expect(bc.postMessage).toHaveBeenCalledWith({
+      channel: "root-to-ws",
+      action: "focus",
+      payload: { cam: "c2" },
+    });
+    expect(channels["root-to-ws"]!.emit).toHaveBeenCalledWith("focus", { cam: "c2" });
+  });
+
+  it("an incoming remote message re-emits on the local channel without re-broadcasting", () => {
+    const { bus, channels } = makeBus();
+    createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    const bc = MockBroadcastChannel.instances[0]!;
+    bc.onmessage!(
+      new MessageEvent("message", {
+        data: { channel: "root-to-ws", action: "focus", payload: { cam: "c3" } },
+      }),
+    );
+    expect(channels["root-to-ws"]!.emit).toHaveBeenCalledWith("focus", { cam: "c3" });
+    // Loop guard: the re-emit must not have been posted back.
+    expect(bc.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("messages emitted in one tab reach the local subscribers of another tab", () => {
+    // Two independent buses simulate two tabs sharing the workspace id.
+    const tabA = makeBus();
+    const tabB = makeBus();
+    const pairA = createWorkspaceChannel("ws-x", tabA.bus, { crossTab: true });
+    createWorkspaceChannel("ws-x", tabB.bus, { crossTab: true });
+
+    (pairA.workspace.outbound.emit as (a: string, p: unknown) => void)("motion", { cam: "c9" });
+
+    // Tab B's local ws-to-root channel received the mirrored emit.
+    expect(tabB.channels["ws-to-root"]!.emit).toHaveBeenCalledWith("motion", { cam: "c9" });
+    // Tab A's own local channel also received it exactly once.
+    expect(tabA.channels["ws-to-root"]!.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("destroy() closes the BroadcastChannel", () => {
+    const { bus } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    pair.destroy();
+    expect(MockBroadcastChannel.instances[0]!.close).toHaveBeenCalledOnce();
+  });
+
+  it("ignores malformed broadcast messages", () => {
+    const { bus, channels } = makeBus();
+    createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    const bc = MockBroadcastChannel.instances[0]!;
+    bc.onmessage!(new MessageEvent("message", { data: null }));
+    bc.onmessage!(new MessageEvent("message", { data: { channel: "bogus", action: "x" } }));
+    expect(channels["root-to-ws"]!.emit).not.toHaveBeenCalled();
+    expect(channels["ws-to-root"]!.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("createWorkspaceChannel: cross-tab emitAsync", () => {
+  beforeEach(() => {
+    MockBroadcastChannel.instances = [];
+    vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+    return () => vi.unstubAllGlobals();
+  });
+
+  it("emitAsync is also mirrored across the BroadcastChannel", () => {
+    const { bus, channels } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    (pair.workspace.outbound.emitAsync as (a: string, p: unknown) => void)("motion", { cam: "c1" });
+    const bc = MockBroadcastChannel.instances[0]!;
+    expect(bc.postMessage).toHaveBeenCalledWith({
+      channel: "ws-to-root",
+      action: "motion",
+      payload: { cam: "c1" },
+    });
+    expect(channels["ws-to-root"]!.emitAsync).toHaveBeenCalledWith("motion", { cam: "c1" });
+  });
+});
+
+describe("createWorkspaceChannel: bridged channel passthrough", () => {
+  beforeEach(() => {
+    MockBroadcastChannel.instances = [];
+    vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+    return () => vi.unstubAllGlobals();
+  });
+
+  it("non-emit members (on, destroy) pass through to the underlying channel", () => {
+    const { bus, channels } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    const handler = vi.fn();
+    pair.workspace.inbound.on("focus", handler);
+    expect(channels["root-to-ws"]!.on).toHaveBeenCalledWith("focus", handler);
+  });
+});

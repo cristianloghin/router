@@ -63,6 +63,17 @@ export type WorkspaceAuthRule =
   | { type: "credential"; validate: (input: CredentialInput) => boolean | Promise<boolean> }
   | { type: "custom"; check: (context: AuthCheckContext) => boolean | Promise<boolean> };
 
+/**
+ * Props for the AuthGate component rendered in place of a workspace whose
+ * direct-access auth check failed (spec §6.4). Override the default gate via
+ * AppConfig.components.AuthGate.
+ */
+export interface AuthGateProps {
+  workspace: WorkspaceDescriptor;
+  authRule: WorkspaceAuthRule;
+  retry: (input?: CredentialInput) => Promise<void>;
+}
+
 // ─── WorkspaceTemplate ────────────────────────────────────────────────────────
 
 export interface WorkspaceTemplate<TParams extends WorkspaceParams = WorkspaceParams> {

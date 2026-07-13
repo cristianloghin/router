@@ -1,6 +1,12 @@
 import { buildPath, matchPath } from "./matcher";
 import { HistoryStack } from "./history";
-import type { NavigateOptions, NavigationEvent, NavigationType } from "./types";
+import type {
+  NavigateOptions,
+  NavigationEvent,
+  NavigationType,
+  RoutePath,
+  NavigateArgs,
+} from "./types";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +44,11 @@ export class RouterStore {
   ) => void;
   onNavigate?: (event: NavigationEvent) => void;
   onPrompt?: (message: string) => boolean;
+  /**
+   * Route guard evaluator, wired by AppProvider from route definitions.
+   * Returns true to allow, false to block, a string to redirect.
+   */
+  routeGuard?: (path: string) => boolean | string | Promise<boolean | string>;
 
   private previousPath: string | null = null;
 
@@ -88,6 +99,11 @@ export class RouterStore {
   ): void {
     const { replace = false, state, params } = options;
     const resolvedPath = params ? buildPath(to, params) : to;
+    const isWorkspace = this.isWorkspacePath(resolvedPath);
+    // Spec §3: for workspace navigations, NavigationEvent.to is the origin
+    // route (the router's retained path), never the workspace URL.
+    const eventTo = isWorkspace ? this.state.path : resolvedPath;
+    const eventType: NavigationType = type === "push" && replace ? "replace" : type;
 
     // Prompt guard
     if (this.onPrompt) {
@@ -100,25 +116,83 @@ export class RouterStore {
       let cancelled = false;
       this.onBeforeNavigate({
         from: this.previousPath,
-        to: resolvedPath,
-        type,
+        to: eventTo,
+        type: eventType,
         cancel: () => { cancelled = true; },
       });
       if (cancelled) return;
     }
 
     // Workspace URLs: update window.location but keep the router's path state unchanged.
-    if (this.isWorkspacePath(resolvedPath)) {
+    if (isWorkspace) {
       if (replace) {
         window.history.replaceState(state ?? null, "", resolvedPath);
       } else {
         window.history.pushState(state ?? null, "", resolvedPath);
       }
       // Don't update router path state — workspace URL is transparent to the router.
+      this.onNavigate?.({ from: this.previousPath, to: eventTo, type: eventType });
       return;
     }
 
+    // Route guard (spec §2.1): false blocks, string redirects, rejected
+    // promise blocks. Sync verdicts keep navigation synchronous.
+    if (this.routeGuard) {
+      let verdict: boolean | string | Promise<boolean | string>;
+      try {
+        verdict = this.routeGuard(resolvedPath);
+      } catch {
+        return;
+      }
+      if (verdict === false) return;
+      if (typeof verdict === "string") {
+        this.navigate(verdict, { replace }, type);
+        return;
+      }
+      if (verdict instanceof Promise) {
+        void verdict.then(
+          (v) => {
+            if (v === false) return;
+            if (typeof v === "string") {
+              this.navigate(v, { replace }, type);
+              return;
+            }
+            this.commitNavigation(resolvedPath, replace, state, type, eventType);
+          },
+          () => {
+            // Rejected promise blocks navigation (spec §2.1).
+          },
+        );
+        return;
+      }
+    }
+
+    this.commitNavigation(resolvedPath, replace, state, type, eventType);
+  }
+
+  private commitNavigation(
+    resolvedPath: string,
+    replace: boolean,
+    state: Record<string, unknown> | undefined,
+    type: NavigationType,
+    eventType: NavigationType,
+  ): void {
     const prevPath = this.previousPath;
+
+    // Workspace close: restore the origin route by replacing the workspace URL,
+    // bypassing the session stack entirely (spec §4.13) — canGoBack reflects
+    // the same state it had before the workspace was opened.
+    if (type === "workspace-close") {
+      window.history.replaceState(state ?? null, "", resolvedPath);
+      this.previousPath = resolvedPath;
+      this.setState({
+        path: resolvedPath,
+        searchParams: new URLSearchParams(window.location.search),
+        canGoBack: this.historyStack.canGoBack,
+      });
+      this.onNavigate?.({ from: prevPath, to: resolvedPath, type });
+      return;
+    }
 
     if (replace) {
       window.history.replaceState(state ?? null, "", resolvedPath);
@@ -137,11 +211,12 @@ export class RouterStore {
       canGoBack: this.historyStack.canGoBack,
     });
 
-    this.onNavigate?.({ from: prevPath, to: resolvedPath, type });
+    this.onNavigate?.({ from: prevPath, to: resolvedPath, type: eventType });
   }
 
   back(): void {
     if (!this.historyStack.canGoBack) return;
+    if (this.onPrompt && !this.onPrompt("")) return;
     const prev = this.historyStack.pop();
     window.history.back();
     if (prev !== undefined) {
@@ -216,6 +291,11 @@ export function setActiveStore(store: RouterStore | null): void {
   _store = store;
 }
 
+export function navigate<TPath extends RoutePath>(
+  to: TPath,
+  ...args: NavigateArgs<TPath>
+): void;
+export function navigate(to: string, options?: NavigateOptions): void;
 export function navigate(to: string, options?: NavigateOptions): void {
   _store?.navigate(to, options);
 }

@@ -330,3 +330,37 @@ describe("usePrompt", () => {
     vi.restoreAllMocks();
   });
 });
+
+// ─── usePrompt: back() interception ──────────────────────────────────────────
+
+describe("usePrompt: back() interception", () => {
+  it("blocks back() when confirm returns false", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { result: navResult } = renderHook(() => useNavigation(), { wrapper: makeWrapper(store) });
+    act(() => { navResult.current.navigate("/settings"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+    act(() => { navResult.current.back(); });
+    expect(store.getSnapshot().path).toBe("/settings");
+    expect(backSpy).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("allows back() when confirm returns true", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { result: navResult } = renderHook(() => useNavigation(), { wrapper: makeWrapper(store) });
+    act(() => { navResult.current.navigate("/settings"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+    act(() => { navResult.current.back(); });
+    expect(backSpy).toHaveBeenCalledOnce();
+    vi.restoreAllMocks();
+  });
+
+  it("beforeunload handler prevents default while when=true", () => {
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+});

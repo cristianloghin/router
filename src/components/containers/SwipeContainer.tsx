@@ -1,5 +1,6 @@
 import React, { useRef, useCallback } from "react";
 import { useWorkspaces } from "../../workspaces/hooks";
+import { GatedWorkspaceContent } from "../../workspaces/auth/AuthGate";
 import { useWorkspaceManagerContext, useWorkspaceTemplates } from "../../workspaces/context";
 import { SwipeAdapter } from "../../workspaces/adapters/SwipeAdapter";
 import type { WorkspaceDescriptor, WorkspaceChannel } from "../../workspaces/types";
@@ -76,7 +77,7 @@ export function SwipeContainer(): React.ReactElement {
                   Close
                 </button>
               </div>
-              <Component workspace={workspace} channel={channel} />
+              <GatedWorkspaceContent workspace={workspace} channel={channel} Component={Component} />
             </div>
           );
         })}

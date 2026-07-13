@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useRouterStore } from "./context";
 import { matchPath } from "./matcher";
-import type { ExtractParams, RouteMap } from "./types";
+import type {
+  ExtractParams,
+  RouteMap,
+  RoutePath,
+  NavigateArgs,
+  BuildPathArgs,
+  NavigateOptions,
+} from "./types";
 import type { QueryParamSchema, InferQueryState } from "../utils/params";
 
 // ─── useNavigation ────────────────────────────────────────────────────────────
 
 export interface UseNavigationReturn {
-  navigate(to: string, options?: { replace?: boolean; state?: Record<string, unknown>; params?: Record<string, string> }): void;
+  /** Navigate to a route key with typed params (see Register in types). */
+  navigate<TPath extends RoutePath>(to: TPath, ...args: NavigateArgs<TPath>): void;
+  /** Raw string escape hatch — external URLs or dynamically built paths. */
+  navigate(to: string, options?: NavigateOptions): void;
   back(): void;
-  buildPath(pattern: string, params?: Record<string, string>): string;
+  buildPath<TPath extends RoutePath>(path: TPath, ...args: BuildPathArgs<TPath>): string;
 }
 
 export function useNavigation(): UseNavigationReturn {
@@ -64,7 +74,7 @@ export function useLocation(workspaceBasePath = "/workspace"): UseLocationReturn
 
 // ─── useRoute ─────────────────────────────────────────────────────────────────
 
-export function useRoute<TPath extends string>(
+export function useRoute<TPath extends RoutePath>(
   path: TPath,
 ): { matched: boolean; params: ExtractParams<TPath>; exact: boolean } {
   const store = useRouterStore();
@@ -121,7 +131,7 @@ function takePrefixSegments(path: string, n: number): string {
 
 // ─── useParams ────────────────────────────────────────────────────────────────
 
-export function useParams<TPath extends string>(path: TPath): ExtractParams<TPath> {
+export function useParams<TPath extends RoutePath>(path: TPath): ExtractParams<TPath> {
   const { params } = useRoute(path);
   return params;
 }
@@ -267,6 +277,8 @@ export function usePrompt(message: string, when: boolean): void {
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      // Legacy channel — modern browsers show their own message regardless.
+      e.returnValue = message;
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
 

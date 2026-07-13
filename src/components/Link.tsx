@@ -2,12 +2,12 @@ import React from "react";
 import { useRouterStore } from "../router/context";
 import { useSyncExternalStore } from "react";
 import { matchPath, buildPath } from "../router/matcher";
+import type { LinkParamsProp, RoutePath } from "../router/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface LinkToProps {
-  to: string;
-  params?: Record<string, string>;
+interface LinkToBaseProps<TPath extends string> {
+  to: TPath;
   replace?: boolean;
   state?: Record<string, unknown>;
   children: React.ReactNode;
@@ -20,6 +20,10 @@ interface LinkToProps {
   href?: never;
 }
 
+/** Typed variant: route key + params enforced when routes are Registered. */
+export type LinkToProps<TPath extends string = string> = LinkToBaseProps<TPath> &
+  LinkParamsProp<TPath>;
+
 interface LinkHrefProps {
   href: string;
   children: React.ReactNode;
@@ -28,11 +32,15 @@ interface LinkHrefProps {
   to?: never;
 }
 
-export type LinkProps = LinkToProps | LinkHrefProps;
+export type LinkProps<TPath extends string = string> =
+  | LinkToProps<TPath>
+  | LinkHrefProps;
 
 // ─── Link ─────────────────────────────────────────────────────────────────────
 
-export function Link(props: LinkProps): React.ReactElement {
+export function Link<TPath extends RoutePath = RoutePath>(
+  props: LinkProps<TPath>,
+): React.ReactElement {
   // Escape hatch: href-based link with no interception or active state.
   if ("href" in props && props.href !== undefined) {
     const { href, children, className, style } = props;
