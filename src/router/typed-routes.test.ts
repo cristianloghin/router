@@ -44,3 +44,39 @@ describe("typed route arguments", () => {
     expect(true).toBe(true);
   });
 });
+
+// ─── schema-first workspace typing (v0.2 API) ────────────────────────────────
+
+import type {
+  InferSchemaParams,
+  InferParams,
+  RegisteredWorkspaces,
+  WorkspaceTemplateMap,
+  WorkspaceTemplate,
+} from "../workspaces/types";
+
+describe("schema-first workspace params", () => {
+  it("InferSchemaParams derives typed records from schema literals", () => {
+    expectTypeOf<
+      InferSchemaParams<{ cameraId: "string"; count: "number"; live: "boolean"; ids: "string[]"; nums: "number[]" }>
+    >().toEqualTypeOf<{ cameraId: string; count: number; live: boolean; ids: string[]; nums: number[] }>();
+    expect(true).toBe(true);
+  });
+
+  it("InferParams derives from the schema when present", () => {
+    expectTypeOf<InferParams<{ schema: { cameraId: "string" } }>>().toEqualTypeOf<{
+      cameraId: string;
+    }>();
+    expect(true).toBe(true);
+  });
+
+  it("InferParams falls back to the WorkspaceTemplate generic without a schema", () => {
+    expectTypeOf<InferParams<WorkspaceTemplate<{ x: string }>>>().toEqualTypeOf<{ x: string }>();
+    expect(true).toBe(true);
+  });
+
+  it("RegisteredWorkspaces is the loose map when unregistered", () => {
+    expectTypeOf<RegisteredWorkspaces>().toEqualTypeOf<WorkspaceTemplateMap>();
+    expect(true).toBe(true);
+  });
+});

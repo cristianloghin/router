@@ -1,5 +1,5 @@
 import type {
-  WorkspaceTemplate,
+  WorkspaceTemplateFor,
   WorkspaceTemplateMap,
   WorkspaceDescriptor,
   WorkspaceParams,
@@ -8,10 +8,21 @@ import type {
 
 // ─── defineWorkspaces ─────────────────────────────────────────────────────────
 
-export function defineWorkspaces<TMap extends WorkspaceTemplateMap>(map: TMap): TMap {
+/**
+ * Declares the app's workspace templates. Param types are inferred from each
+ * template's `schema` — declare the schema once and the component's
+ * `workspace.params` (plus `open()`/`updateParams()` inputs) are typed from
+ * it. Templates without a schema get loosely typed string params.
+ *
+ * The `const` type parameter preserves schema literals ("string" stays
+ * "string", not string) so inference works without `as const`.
+ */
+export function defineWorkspaces<
+  const TMap extends { [K in keyof TMap]: WorkspaceTemplateFor<TMap[K]> },
+>(map: TMap): TMap {
   // Apply defaults and freeze
   const normalised: WorkspaceTemplateMap = {};
-  for (const [key, template] of Object.entries(map)) {
+  for (const [key, template] of Object.entries(map as WorkspaceTemplateMap)) {
     normalised[key] = {
       ...template,
       auth: template.auth ?? { type: "public" },

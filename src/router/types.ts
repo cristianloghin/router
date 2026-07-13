@@ -70,21 +70,8 @@ export interface NavigateOptions {
 
 // ─── Register (compile-time route typing, spec §4.2/§4.11) ───────────────────
 
-/**
- * Module-augmentation registration point. Apps opt into compile-time route
- * key/param checking by augmenting this interface with their route map:
- *
- * ```ts
- * const routes = defineRoutes({ ... });
- * declare module "@mikrostack/router" {
- *   interface Register { routes: typeof routes }
- * }
- * ```
- *
- * When unregistered, route keys are plain strings (no checking).
- */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface Register {}
+export type { Register } from "../register";
+import type { Register } from "../register";
 
 /** The app's registered route map, or the loose RouteMap when unregistered. */
 export type RegisteredRoutes = Register extends { routes: infer R } ? R : RouteMap;

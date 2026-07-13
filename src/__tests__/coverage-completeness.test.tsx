@@ -14,7 +14,7 @@ import {
   AppProvider,
   RouterView,
   Link,
-  StackContainer,
+  Workspaces,
   defineRoutes,
   defineWorkspaces,
   useNavigation,
@@ -65,7 +65,7 @@ describe("public API barrel (src/index.ts)", () => {
     expect(AppProvider).toBeDefined();
     expect(RouterView).toBeDefined();
     expect(Link).toBeDefined();
-    expect(StackContainer).toBeDefined();
+    expect(Workspaces).toBeDefined();
     expect(defineRoutes).toBeDefined();
     expect(defineWorkspaces).toBeDefined();
     expect(useNavigation).toBeDefined();

@@ -1,6 +1,7 @@
 import type React from "react";
 import type { Channel, ChannelContract } from "@mikrostack/chbus";
 import type { ParamSchema } from "../utils/params";
+import type { Register } from "../register";
 
 // ─── WorkspaceParams ──────────────────────────────────────────────────────────
 
@@ -87,8 +88,56 @@ export interface WorkspaceTemplate<TParams extends WorkspaceParams = WorkspacePa
 // The templates map.
 export type WorkspaceTemplateMap = Record<string, WorkspaceTemplate<WorkspaceParams>>;
 
-// Infers TParams from a WorkspaceTemplate<TParams>.
-export type InferParams<T> = T extends WorkspaceTemplate<infer P> ? P : never;
+// ─── Schema-first param typing ────────────────────────────────────────────────
+
+type ParamTypeToTs<T> = T extends "string"
+  ? string
+  : T extends "number"
+    ? number
+    : T extends "boolean"
+      ? boolean
+      : T extends "string[]"
+        ? string[]
+        : T extends "number[]"
+          ? number[]
+          : never;
+
+/**
+ * Derives the params record type from a template's runtime `schema` —
+ * the schema is the single source of truth for workspace param shapes:
+ *
+ * ```ts
+ * schema: { cameraId: "string", ids: "string[]" }
+ * // → params: { cameraId: string; ids: string[] }
+ * ```
+ */
+export type InferSchemaParams<TSchema> = {
+  [K in keyof TSchema]: ParamTypeToTs<TSchema[K]>;
+};
+
+/**
+ * Per-entry validation shape for defineWorkspaces: a template with a schema
+ * must have a component typed for the schema-derived params; templates
+ * without a schema are loosely typed.
+ */
+export type WorkspaceTemplateFor<V> = V extends { schema: infer S }
+  ? WorkspaceTemplate<InferSchemaParams<S>>
+  : WorkspaceTemplate<WorkspaceParams>;
+
+/**
+ * Infers a template's params: from its `schema` when present (schema-first),
+ * falling back to the declared WorkspaceTemplate generic.
+ */
+export type InferParams<T> = T extends { schema: infer S }
+  ? InferSchemaParams<S>
+  : T extends WorkspaceTemplate<infer P>
+    ? P
+    : WorkspaceParams;
+
+/** The app's registered workspace map (see Register), or the loose map. */
+export type RegisteredWorkspaces = Register extends { workspaces: infer W }
+  ? W
+  : WorkspaceTemplateMap;
 
 // ─── WorkspaceEvent ───────────────────────────────────────────────────────────
 

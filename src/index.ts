@@ -27,9 +27,8 @@ export { AppProvider } from "./provider/AppProvider";
 
 export { RouterView } from "./components/RouterView";
 export { Link } from "./components/Link";
-export { StackContainer } from "./components/containers/StackContainer";
-export { SwipeContainer } from "./components/containers/SwipeContainer";
-export { TabsContainer } from "./components/containers/TabsContainer";
+// Individual containers (StackContainer/SwipeContainer/TabsContainer) are
+// internal — <Workspaces> selects the right one for the active adapter.
 export { Workspaces } from "./components/containers/Workspaces";
 export { useWorkspaceContainer } from "./components/containers/containerContext";
 
@@ -62,6 +61,9 @@ export type {
   AdapterType,
   AuthGateProps,
   CredentialInput,
+  InferSchemaParams,
+  InferParams,
+  RegisteredWorkspaces,
 } from "./workspaces/types";
 export { WorkspaceError } from "./workspaces/types";
 
@@ -69,8 +71,5 @@ export type { AppProviderProps, AppConfig } from "./provider/AppProvider";
 export type { RouterViewProps } from "./components/RouterView";
 export type { LinkProps } from "./components/Link";
 export type { WorkspacesProps } from "./components/containers/Workspaces";
-export type { StackContainerProps } from "./components/containers/StackContainer";
-export type { SwipeContainerProps } from "./components/containers/SwipeContainer";
-export type { TabsContainerProps } from "./components/containers/TabsContainer";
 export type { RenderWorkspace } from "./components/containers/containerContext";
 export type { QueryParamSchema, QueryParamDescriptor } from "./utils/params";

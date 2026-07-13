@@ -80,7 +80,7 @@ Requires `@mikrostack/chbus` `^0.3.1`.
 
 ```tsx
 import React from "react";
-import { AppProvider, RouterView, Link, defineRoutes, defineWorkspaces } from "@mikrostack/router";
+import { AppProvider, RouterView, Workspaces, Link, defineRoutes, defineWorkspaces } from "@mikrostack/router";
 
 const routes = defineRoutes({
   "/":        { component: Home },
@@ -100,6 +100,7 @@ function App() {
         <Link to="/about">About</Link>
       </nav>
       <RouterView />
+      <Workspaces />
     </AppProvider>
   );
 }
@@ -161,8 +162,7 @@ The single root provider. Must wrap your entire application.
 |---|---|---|---|
 | `adapter` | `"auto" \| "stack" \| "swipe" \| "tabs"` | `"auto"` | Workspace layout adapter. `auto` picks `swipe` on coarse pointers, otherwise `stack` (never `tabs`). |
 | `maxWorkspaces` | `number` | `10` | Maximum total open workspaces across all templates. |
-| `persistWorkspaces` | `boolean` | `false` | Persist workspace state in `sessionStorage`. |
-| `persistVersion` | `number` | — | Required when `persistWorkspaces` is `true`; bumps invalidate old persisted state. |
+| `persist` | `{ version: number }` | off | Persist workspace state in `sessionStorage`; bumping `version` invalidates old persisted state. |
 | `defaultLoading` | `React.ComponentType \| React.ReactNode` | `null` | Fallback shown during route/lazy load suspense |
 | `defaultError` | `React.ComponentType<RouteErrorProps>` | Built-in | Fallback shown when a route throws |
 | `auth.isAuthenticated` | `() => boolean \| Promise<boolean>` | `() => false` | Used by `authenticated` workspace auth rules |
@@ -557,8 +557,10 @@ const workspaces = defineWorkspaces({
 | `component` | `React.ComponentType<WorkspaceComponentProps>` | The component rendered for this workspace |
 | `auth` | `WorkspaceAuthRule` | Access control rule (default: `{ type: "public" }`) |
 | `maxInstances` | `number` | Maximum number of simultaneously open instances |
-| `schema` | `Record<string, ParamType>` | Declares param types for URL serialization |
+| `schema` | `Record<string, ParamType>` | Single source of truth for params: drives URL serialization **and** the TypeScript param types |
 | `defaultTitle` | `string \| ((params) => string)` | Default title if none provided to `open()` |
+
+**The schema is schema-first:** `workspace.params` in the component, and the `params` arguments to `open()`/`updateParams()`, are *inferred* from `schema` — declare the shape once, no separate params type and no casts. `cameraFeed` above gives `params: { cameraId: string; quality: number }` everywhere. Templates without a schema get loosely typed string params.
 
 ### Auth rules
 
@@ -620,26 +622,13 @@ import { Workspaces } from "@mikrostack/router";
 </Workspaces>
 ```
 
-Or place a specific container directly:
-
-```tsx
-import { StackContainer, SwipeContainer, TabsContainer } from "@mikrostack/router";
-
-// For adapter="stack" — children render when no workspace is focused
-<StackContainer>{rootPage}</StackContainer>
-
-// For adapter="swipe" — children become page 0 of the swipe deck
-<SwipeContainer>{rootPage}</SwipeContainer>
-
-// For adapter="tabs" — renders a tab strip (the actual content is in the new tab)
-<TabsContainer />
-```
+The per-adapter containers are internal — `<Workspaces>` always renders the one matching `config.adapter`, so there is no wrong choice to make.
 
 **Containers are headless.** They inject no buttons or UI copy — wrap each workspace's content in your own chrome with the `renderWorkspace` prop (`(workspace, content) => ReactNode`, default: renders `content` bare) and drive focus/close from your chrome via `useWorkspaces()`.
 
-**`children` as the root page.** `SwipeContainer` renders `children` as page 0 of the swipe track — the deck starts at your dashboard. `StackContainer` renders `children` whenever no workspace URL is focused.
+**`children` as the root page.** Under the swipe adapter, `children` becomes page 0 of the swipe track — the deck starts at your dashboard. Under the stack adapter, `children` renders whenever no workspace URL is focused. Under tabs, `children` is not used (each workspace lives in its own browser tab).
 
-**Scroll→URL sync (`SwipeContainer`, on by default).** When a swipe settles on a workspace page, the adapter index updates (without emitting `workspace:focused`) and the URL is *replaced* with that workspace's URL; settling on the root page replaces the URL with the current route path. Swiping never pushes history entries, fires navigation events, or triggers `usePrompt`. Programmatic `focus()` smooth-scrolls the deck to the workspace's page, and orientation changes re-snap to the settled page.
+**Scroll→URL sync (swipe adapter, on by default).** When a swipe settles on a workspace page, the adapter index updates (without emitting `workspace:focused`) and the URL is *replaced* with that workspace's URL; settling on the root page replaces the URL with the current route path. Swiping never pushes history entries, fires navigation events, or triggers `usePrompt`. Programmatic `focus()` smooth-scrolls the deck to the workspace's page, and orientation changes re-snap to the settled page.
 
 **`useWorkspaceContainer()`.** Returns the active container's scroll element (or `null`), so app code can drive the deck imperatively — e.g. scroll home from a workspace-selector overlay:
 
@@ -654,7 +643,7 @@ The primary hook for managing workspaces. Returns the workspace list, the curren
 
 ```tsx
 function WorkspaceManager() {
-  const { workspaces, current, open, close, focus, updateParams, updateTitle, adapterType } = useWorkspaces<typeof workspaceDefs>();
+  const { workspaces, current, open, close, focus, updateParams, updateTitle, adapterType } = useWorkspaces();
 
   const handleOpen = async () => {
     try {
@@ -706,19 +695,19 @@ function WorkspaceManager() {
 
 ### `useWorkspace`
 
-Returns state for a single workspace by ID.
+Returns reactive state for a single workspace by ID.
 
 ```tsx
 function WorkspacePanel({ id }: { id: string }) {
   const result = useWorkspace(id);
   if (!result) return null;
 
-  const { workspace, params, channel } = result;
+  const { workspace, params } = result;
   return <div>{workspace.title}</div>;
 }
 ```
 
-Returns `null` when the workspace is not open.
+Returns `null` when the workspace is not open. Channels are not exposed here — the workspace side receives its channel via component props, the root side uses `useWorkspaceChannel(id)`.
 
 ### `useWorkspaceChannel`
 
@@ -832,30 +821,42 @@ Supported param types: `"string"`, `"number"`, `"boolean"`, `"string[]"`, `"numb
 
 ## Full TypeScript types
 
-Pass the workspace template map as a type parameter to `useWorkspaces` for fully typed `open()` calls:
+Register your maps once and every hook is fully typed — route keys, route params, workspace template keys, and workspace params, with no explicit generics at call sites:
 
 ```tsx
+const routes = defineRoutes({ ... });
 const workspaces = defineWorkspaces({
   camera: {
     component: CameraComponent,
-    schema: { cameraId: "string" as const },
+    schema: { cameraId: "string" },
   },
   report: {
     component: ReportComponent,
-    schema: { reportId: "string" as const, format: "string" as const },
+    schema: { reportId: "string", format: "string" },
   },
 });
 
-// In a component:
-const { open } = useWorkspaces<typeof workspaces>();
+declare module "@mikrostack/router" {
+  interface Register {
+    routes: typeof routes;
+    workspaces: typeof workspaces;
+  }
+}
+
+// In any component — no generics needed:
+const { navigate } = useNavigation();
+navigate("/camera/:id", { params: { id: "cam-4" } }); // keys + params checked
+const { open } = useWorkspaces();
 
 // Fully typed — template keys and params are checked at compile time
 await open({ template: "camera", title: "Cam 1", params: { cameraId: "c1" } });
 await open({ template: "report", title: "Report", params: { reportId: "r1", format: "pdf" } });
 
-// Compile error — "unknown" is not a key of typeof workspaces
+// Compile error — "unknown" is not a registered template
 await open({ template: "unknown", title: "T", params: {} });
 ```
+
+Without registration, keys are plain strings (no checking). An explicit generic (`useWorkspaces<typeof workspaces>()`) also works for one-off typing.
 
 ---
 
@@ -872,10 +873,7 @@ AppProvider
 // Components
 RouterView
 Link
-Workspaces              // auto-selects the container for the active adapter
-StackContainer
-SwipeContainer
-TabsContainer
+Workspaces              // renders the container for the active adapter
 
 // Router hooks
 useNavigation()       → { navigate, back, buildPath }
@@ -889,9 +887,12 @@ usePrompt(msg, when)
 
 // Workspace hooks
 useWorkspaces()          → { workspaces, current, adapterType, open, focus, close, updateParams, updateTitle }
-useWorkspace(id)         → { workspace, params, channel } | null
+useWorkspace(id)         → { workspace, params } | null
 useWorkspaceChannel(id)  → { inbound, outbound } | null
 useWorkspaceContainer()  → HTMLElement | null   // the active container's scroll element
+
+// Typing (optional, zero-runtime)
+Register                 // declare module augmentation with { routes, workspaces }
 
 // Imperative
 navigate(to, options?)

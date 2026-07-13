@@ -123,7 +123,7 @@ src/
 
 ### 2.1 Route definition — ✅ DONE
 
-> **Status:** types, `defineRoutes` validation, `ExtractParams`, parent inference (segment boundary, longest prefix, `parent: null`), inside-out outlet rendering, `guard` evaluation (false blocks, string redirects, async supported, throwing/rejecting blocks), the full `loading`/`error` fallback chain (route → RouterView prop → AppConfig → library default), and dev-only cycle detection are all implemented. Note: duplicate route keys cannot be detected at runtime — later keys in an object literal silently overwrite earlier ones before `defineRoutes` sees them.
+> **Status:** types, `defineRoutes` validation, `ExtractParams`, parent inference (segment boundary, longest prefix, `parent: null`), inside-out outlet rendering, `guard` evaluation (false blocks, string redirects, async supported, throwing/rejecting blocks), the full `loading`/`error` fallback chain (route → AppConfig → library default; the RouterView-prop variant was removed in the v0.2 API simplification), and dev-only cycle detection are all implemented. Note: duplicate route keys cannot be detected at runtime — later keys in an object literal silently overwrite earlier ones before `defineRoutes` sees them.
 
 Routes are declared via `defineRoutes`. The **key is the path** — no separate `path` field. `ExtractParams` runs directly on the key string. The result is a flat map regardless of nesting depth, which keeps the type system simple and all addressing uniform.
 
@@ -335,7 +335,7 @@ interface NavigationContext {
 
 ## 3. AppProvider — single root provider — ⚠️ PARTIAL
 
-> **Status:** everything implemented — `maxWorkspaces` (default 10, throws `MAX_WORKSPACES_REACHED`), `defaultLoading`/`defaultError` via context, `auth.onCredentialAttempt`, `components.AuthGate`, sessionStorage persistence, `onBeforeNavigate`/`onNavigate` including `workspace-open`/`workspace-close` event types (focus counts as `workspace-open`) — with two deliberate deviations:
+> **Status:** everything implemented — `maxWorkspaces` (default 10, throws `MAX_WORKSPACES_REACHED`), `defaultLoading`/`defaultError` via context, `auth.onCredentialAttempt`, `components.AuthGate`, sessionStorage persistence (v0.2 API: single `persist: { version }` field instead of `persistWorkspaces`+`persistVersion` — misconfiguration is unrepresentable), `onBeforeNavigate`/`onNavigate` including `workspace-open`/`workspace-close` event types (focus counts as `workspace-open`) — with two deliberate deviations:
 > - **`adapter: "auto"` never selects tabs** (recorded in PRE_ADOPTION_CHANGE_PLAN §6): auto is swipe (coarse pointer) or stack only; `window.open`-based UX must be opted into explicitly.
 > - **`cancel()` on a workspace navigation blocks only the URL change** — the adapter state mutation (e.g. workspace opened) has already happened by the time the navigation event fires.
 
@@ -912,6 +912,8 @@ type InferParams<T> = T extends WorkspaceTemplate<infer P> ? P : never;
 
 ### 5.2 `useWorkspace(id)` — ✅ DONE
 
+> **Status (v0.2 API):** returns `{ workspace, params }` — the `channel` field below was removed as perspective-ambiguous; the workspace side gets its channel via component props, the root side via `useWorkspaceChannel(id)`.
+
 Per-workspace reactive hook. Replaces `useWorkspaceParams`.
 
 ```typescript
@@ -927,7 +929,7 @@ function useWorkspace<TParams extends WorkspaceParams>(
 
 ### 5.3 Param serialization — ✅ DONE
 
-> **Status:** serialization, schema-driven deserialization (used when reconstructing a workspace from a directly-loaded URL — `WorkspaceManager.descriptorFromLocation`; no schema → all values strings), and sessionStorage persistence with `ws:v{persistVersion}` version-mismatch discard are all implemented.
+> **Status:** serialization, schema-driven deserialization (used when reconstructing a workspace from a directly-loaded URL — `WorkspaceManager.descriptorFromLocation`; no schema → all values strings), and sessionStorage persistence with `ws:v{version}` version-mismatch discard are all implemented. v0.2 API: persistence is enabled via `config.persist: { version }`, and the schema is also the source of the TypeScript param types (schema-first — `InferSchemaParams`).
 
 All workspace params are serialized to/from URL search params. The serialization layer handles arrays and primitive types transparently.
 

@@ -210,41 +210,10 @@ describe("AppProvider: workspace persistence", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("throws at init when persistWorkspaces is true without persistVersion", () => {
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(() =>
-      render(
-        <AppProvider
-          routes={routes}
-          workspaces={workspaces}
-          config={{ adapter: "stack", persistWorkspaces: true }}
-        >
-          <div />
-        </AppProvider>,
-      ),
-    ).toThrow(/persistVersion/);
-    spy.mockRestore();
-  });
-
-  it("does not throw when persistWorkspaces is true with persistVersion", () => {
-    expect(() =>
-      render(
-        <AppProvider
-          routes={routes}
-          workspaces={workspaces}
-          config={{ adapter: "stack", persistWorkspaces: true, persistVersion: 1 }}
-        >
-          <div />
-        </AppProvider>,
-      ),
-    ).not.toThrow();
-  });
-
   it("restores workspaces opened under a previous provider instance", async () => {
     const persistConfig = {
       adapter: "stack" as const,
-      persistWorkspaces: true,
-      persistVersion: 1,
+      persist: { version: 1 },
     };
 
     const first = renderHook(() => useWorkspaces(), {
@@ -274,7 +243,7 @@ describe("AppProvider: workspace persistence", () => {
   it("starts fresh when the persisted version does not match", async () => {
     const first = renderHook(() => useWorkspaces(), {
       wrapper: makeWrapper({
-        config: { adapter: "stack", persistWorkspaces: true, persistVersion: 1 },
+        config: { adapter: "stack", persist: { version: 1 } },
       }),
     });
     await act(async () => {
@@ -289,7 +258,7 @@ describe("AppProvider: workspace persistence", () => {
 
     const second = renderHook(() => useWorkspaces(), {
       wrapper: makeWrapper({
-        config: { adapter: "stack", persistWorkspaces: true, persistVersion: 2 },
+        config: { adapter: "stack", persist: { version: 2 } },
       }),
     });
     expect(second.result.current.workspaces).toEqual([]);
@@ -372,23 +341,6 @@ describe("AppProvider: defaultLoading/defaultError reach RouterView via config",
     spy.mockRestore();
   });
 
-  it("RouterView prop overrides config.defaultLoading", () => {
-    const NeverResolves = React.lazy<React.ComponentType>(() => new Promise(() => {}));
-    const lazyRoutes = defineRoutes({
-      "/": { component: NeverResolves },
-    });
-    const { getByText, queryByText } = render(
-      <AppProvider
-        routes={lazyRoutes}
-        workspaces={workspaces}
-        config={{ adapter: "stack", defaultLoading: <div>config-loading</div> }}
-      >
-        <RouterView defaultLoading={<div>prop-loading</div>} />
-      </AppProvider>,
-    );
-    expect(getByText("prop-loading")).toBeTruthy();
-    expect(queryByText("config-loading")).toBeNull();
-  });
 });
 
 // ─── workspace navigation events ──────────────────────────────────────────────

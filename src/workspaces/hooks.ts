@@ -4,11 +4,10 @@ import type {
   WorkspaceDescriptor,
   WorkspaceParams,
   WorkspaceEvent,
-  WorkspaceTemplateMap,
   OpenWorkspaceInput,
   InferParams,
+  RegisteredWorkspaces,
 } from "./types";
-import type { WorkspaceChannel } from "./types";
 import type { Channel, ChannelContract } from "@mikrostack/chbus";
 
 // ─── useWorkspaces ────────────────────────────────────────────────────────────
@@ -18,7 +17,14 @@ interface WorkspacesSnapshot {
   current: WorkspaceDescriptor | null;
 }
 
-export function useWorkspaces<TWorkspaces extends WorkspaceTemplateMap = WorkspaceTemplateMap>() {
+/**
+ * Template keys and param shapes are compile-checked when the app's
+ * workspaces are Registered (see Register); an explicit generic
+ * (`useWorkspaces<typeof workspaces>()`) also works.
+ */
+export function useWorkspaces<
+  TWorkspaces extends Record<string, unknown> = RegisteredWorkspaces,
+>() {
   const manager = useWorkspaceManagerContext();
 
   const snapshotRef = useRef<WorkspacesSnapshot>({
@@ -82,9 +88,13 @@ export function useWorkspaces<TWorkspaces extends WorkspaceTemplateMap = Workspa
 interface WorkspaceHookResult<TParams extends WorkspaceParams = WorkspaceParams> {
   workspace: WorkspaceDescriptor<TParams>;
   params: TParams;
-  channel: WorkspaceChannel;
 }
 
+/**
+ * Reactive state for a single workspace. Channels are not exposed here — the
+ * workspace side receives its channel via component props, the root side uses
+ * useWorkspaceChannel(id) (which is perspective-correct).
+ */
 export function useWorkspace<TParams extends WorkspaceParams = WorkspaceParams>(
   id: string,
 ): WorkspaceHookResult<TParams> | null {
@@ -96,13 +106,9 @@ export function useWorkspace<TParams extends WorkspaceParams = WorkspaceParams>(
       | undefined;
     if (!workspace) return null;
 
-    const pair = manager.getChannel(id);
-    if (!pair) return null;
-
     return {
       workspace,
       params: workspace.params,
-      channel: pair.workspace as WorkspaceChannel,
     };
   }, [manager, id]);
 

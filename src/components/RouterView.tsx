@@ -12,8 +12,6 @@ import type { RouteErrorProps } from "../router/types";
 export interface RouterViewProps {
   fallback?: React.ComponentType<{ path: string }> | React.ReactNode;
   scrollRestoration?: "top" | "restore" | "none";
-  defaultLoading?: React.ComponentType | React.ReactNode;
-  defaultError?: React.ComponentType<RouteErrorProps>;
 }
 
 // ─── RouterView ───────────────────────────────────────────────────────────────
@@ -21,15 +19,13 @@ export interface RouterViewProps {
 export function RouterView({
   fallback,
   scrollRestoration = "top",
-  defaultLoading: defaultLoadingProp,
-  defaultError: defaultErrorProp,
 }: RouterViewProps): React.ReactElement {
   const store = useRouterStore();
   const registry = useRouteRegistry();
   const appConfig = useAppConfig();
-  // Fallback resolution (spec §2.1): route-level → RouterView prop → AppConfig default.
-  const defaultLoading = defaultLoadingProp ?? appConfig.defaultLoading;
-  const defaultError = defaultErrorProp ?? appConfig.defaultError;
+  // Fallback resolution (spec §2.1): route-level → AppConfig default → library default.
+  const defaultLoading = appConfig.defaultLoading;
+  const defaultError = appConfig.defaultError;
   const containerRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef<Map<string, number>>(new Map());
   const [notFoundPath, setNotFoundPath] = useState<string | null>(null);

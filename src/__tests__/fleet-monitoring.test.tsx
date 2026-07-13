@@ -67,14 +67,15 @@ const routes = defineRoutes({
 
 const workspaces = defineWorkspaces({
   cameraFeed: {
-    component: CameraFeedWorkspace as React.ComponentType<WorkspaceComponentProps>,
+    // No cast needed: params are inferred from the schema (schema-first).
+    component: CameraFeedWorkspace,
     auth: { type: "public" },
-    schema: { cameraId: "string" as const, label: "string" as const },
+    schema: { cameraId: "string", label: "string" },
   },
   alertPanel: {
-    component: AlertPanelWorkspace as React.ComponentType<WorkspaceComponentProps>,
+    component: AlertPanelWorkspace,
     auth: { type: "public" },
-    schema: { alertIds: "string[]" as const },
+    schema: { alertIds: "string[]" },
   },
 });
 

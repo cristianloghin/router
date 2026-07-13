@@ -50,7 +50,7 @@ export interface UseLocationReturn {
   isTransitioning: boolean;
 }
 
-export function useLocation(workspaceBasePath = "/workspace"): UseLocationReturn {
+export function useLocation(): UseLocationReturn {
   const store = useRouterStore();
 
   const snapshot = useSyncExternalStore(
@@ -67,8 +67,7 @@ export function useLocation(workspaceBasePath = "/workspace"): UseLocationReturn
       canGoBack: snapshot.canGoBack,
       isTransitioning: snapshot.isTransitioning,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [snapshot.path, snapshot.searchParams, snapshot.inWorkspace, snapshot.canGoBack, snapshot.isTransitioning, workspaceBasePath],
+    [snapshot.path, snapshot.searchParams, snapshot.inWorkspace, snapshot.canGoBack, snapshot.isTransitioning],
   );
 }
 

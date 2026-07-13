@@ -37,8 +37,12 @@ import type {
 export interface AppConfig {
   adapter?: "auto" | "stack" | "swipe" | "tabs";
   maxWorkspaces?: number;
-  persistWorkspaces?: boolean;
-  persistVersion?: number;
+  /**
+   * Persist workspace state in sessionStorage. Presence enables persistence;
+   * bump `version` when workspace param shapes change (old state is
+   * discarded, no migration).
+   */
+  persist?: { version: number };
   workspaceBasePath?: string;
   defaultLoading?: React.ComponentType | React.ReactNode;
   defaultError?: React.ComponentType<RouteErrorProps>;
@@ -56,7 +60,10 @@ export interface AppConfig {
 
 export interface AppProviderProps<
   TRoutes extends RouteMap = RouteMap,
-  TWorkspaces extends WorkspaceTemplateMap = WorkspaceTemplateMap,
+  // Loose on purpose: schema-typed maps from defineWorkspaces carry
+  // specifically-typed components that don't satisfy the loose runtime map
+  // (function-param contravariance); defineWorkspaces enforces the shape.
+  TWorkspaces extends Record<string, unknown> = WorkspaceTemplateMap,
   TMeta extends Record<string, unknown> = Record<string, unknown>,
 > {
   routes: TRoutes;
@@ -116,7 +123,7 @@ function createAdapter(type: "auto" | "stack" | "swipe" | "tabs" = "auto"): Work
 
 export function AppProvider<
   TRoutes extends RouteMap = RouteMap,
-  TWorkspaces extends WorkspaceTemplateMap = WorkspaceTemplateMap,
+  TWorkspaces extends Record<string, unknown> = WorkspaceTemplateMap,
   TMeta extends Record<string, unknown> = Record<string, unknown>,
 >({
   routes,
@@ -135,12 +142,6 @@ export function AppProvider<
   // Initialise once on mount
   if (!storeRef.current) {
     const basePath = config.workspaceBasePath ?? "/workspace";
-
-    if (config.persistWorkspaces && config.persistVersion === undefined) {
-      throw new Error(
-        "[@mikrostack/router] persistWorkspaces: true requires persistVersion to be set (spec §5.3)",
-      );
-    }
 
     storeRef.current = new RouterStore(meta as Record<string, unknown>, basePath);
     registryRef.current = new RouteRegistry(routes as RouteMap);
@@ -184,14 +185,12 @@ export function AppProvider<
       guard,
       navigate,
       bus: busRef.current,
-      templates: workspaces as WorkspaceTemplateMap,
+      templates: workspaces as unknown as WorkspaceTemplateMap,
       workspaceBasePath: basePath,
       getCurrentPath: () => store.getSnapshot().path,
       ...(onCredentialAttempt !== undefined ? { onCredentialAttempt } : {}),
       ...(config.maxWorkspaces !== undefined ? { maxWorkspaces: config.maxWorkspaces } : {}),
-      ...(config.persistWorkspaces && config.persistVersion !== undefined
-        ? { persist: { version: config.persistVersion } }
-        : {}),
+      ...(config.persist !== undefined ? { persist: config.persist } : {}),
     });
 
     // Route guard evaluator (spec §2.1): evaluates every guard in the target
@@ -273,7 +272,7 @@ export function AppProvider<
     <RouterStoreContext.Provider value={store}>
       <RouteRegistryContext.Provider value={registryRef.current!}>
         <WorkspaceManagerContext.Provider value={managerRef.current!}>
-          <WorkspaceTemplatesContext.Provider value={workspaces as WorkspaceTemplateMap}>
+          <WorkspaceTemplatesContext.Provider value={workspaces as unknown as WorkspaceTemplateMap}>
             <AppConfigContext.Provider value={appConfig}>
               {children}
               <CredentialDialogHost store={credentialsRef.current!} />

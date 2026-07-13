@@ -192,7 +192,7 @@ describe("useWorkspace: known id", () => {
     expect(result.current?.params).toEqual({ cameraId: "c1" });
   });
 
-  it("returns channel with inbound and outbound", async () => {
+  it("does not expose a channel (use props or useWorkspaceChannel instead)", async () => {
     const { manager } = makeManager();
     const { result: wsResult } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
@@ -201,8 +201,7 @@ describe("useWorkspace: known id", () => {
     });
 
     const { result } = renderHook(() => useWorkspace(d.id), { wrapper: wrapper(manager) });
-    expect(result.current?.channel.inbound).toBeDefined();
-    expect(result.current?.channel.outbound).toBeDefined();
+    expect(result.current).toEqual({ workspace: expect.anything(), params: { cameraId: "c1" } });
   });
 });
 
