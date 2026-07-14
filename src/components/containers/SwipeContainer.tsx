@@ -103,14 +103,17 @@ export function SwipeContainer({
     }
   }, [manager, store, rootOffset, pageWidthOf]);
 
-  // Scrolls a workspace's page into view via scrollIntoView on the page
-  // element — never scrollTo with a computed offset. Snap containers track
-  // a snapped ELEMENT across layout changes and re-snap to it after any
-  // relayout; a scrollTo only moves the viewport and loses that fight
-  // (observed in Chromium: valid scrollTo silently discarded, no scroll
-  // event, position pulled back to the previously tracked page).
-  // scrollIntoView makes the page the tracked snap target, so subsequent
-  // re-snaps pull toward it instead of away from it.
+  // Scrolls a workspace's page into view with scroll-snap SUSPENDED for the
+  // duration of the programmatic scroll.
+  //
+  // Why: when a snap container's content changes (a route swap on the root
+  // page, a new page added), Chromium re-snaps to the previously tracked
+  // snap target in the same frame — overriding any programmatic scroll,
+  // scrollIntoView included (observed on device: scrollLeft reaches the new
+  // page and is yanked back to 0 "in the same beat"). With snap inert
+  // during the scroll, the re-snap pass has nothing to enforce; when snap
+  // re-engages the viewport sits exactly on the new page, so the browser
+  // adopts it as the snap target instead of fighting it.
   const scrollPageIntoView = useCallback(
     (workspaceId: string, behavior: ScrollBehavior) => {
       const track = trackRef.current;
@@ -119,7 +122,27 @@ export function SwipeContainer({
         `[data-workspace-id="${workspaceId}"]`,
       );
       if (!el) return;
+
+      const prevSnap = track.style.scrollSnapType;
+      track.style.scrollSnapType = "none";
       el.scrollIntoView({ behavior, inline: "start", block: "nearest" });
+
+      let restored = false;
+      const restore = () => {
+        if (restored) return;
+        restored = true;
+        track.style.scrollSnapType = prevSnap;
+      };
+      if (behavior === "smooth") {
+        // Re-engage once the smooth scroll settles; timeout as a fallback
+        // for browsers without scrollend.
+        track.addEventListener("scrollend", restore, { once: true });
+        window.setTimeout(restore, 1000);
+      } else {
+        // Instant jump: two frames outlives the mutation-triggered re-snap
+        // pass of the current frame.
+        requestAnimationFrame(() => requestAnimationFrame(restore));
+      }
     },
     [],
   );

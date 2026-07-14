@@ -505,6 +505,42 @@ describe("SwipeContainer: open-jump timing", () => {
     expect(connectedAtCall.length).toBeGreaterThan(0);
     expect(connectedAtCall.every(Boolean)).toBe(true);
   });
+
+  it("suspends scroll-snap during the jump and restores it afterwards (regression: re-snap revert)", async () => {
+    // Chromium re-snaps to the previously tracked snap target when the
+    // container's content changes in the same frame, reverting the jump.
+    // The contract: snap is inert while the programmatic scroll runs, and
+    // re-engages once the position has settled on the new page.
+    const snapAtCall: string[] = [];
+    scrollIntoViewSpy.mockImplementation(function (this: HTMLElement) {
+      const track = this.closest("[data-role='swipe-track']") as HTMLElement;
+      snapAtCall.push(track.style.scrollSnapType);
+    });
+
+    render(
+      <Provider>
+        <Opener title="A" />
+        <SwipeContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </SwipeContainer>
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-A"));
+    });
+
+    // Snap was suspended at scroll time…
+    expect(snapAtCall.length).toBeGreaterThan(0);
+    expect(snapAtCall.every((v) => v === "none")).toBe(true);
+
+    // …and restored after the two-frame settle window.
+    await act(async () => {
+      await new Promise<void>((r) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => r())),
+      );
+    });
+    expect(getTrack().style.scrollSnapType).toBe("");
+  });
 });
 
 // ─── route replace + open in the same handler (CreateWorkspace flow) ─────────
