@@ -82,14 +82,18 @@ export function RouterView({
     prevPathRef.current = path;
   }, [path, scrollRestoration]);
 
-  // Focus management after route change
+  // Focus management after route change. preventScroll is load-bearing:
+  // focus() scrolls the focused element into view, bypassing scroll-snap —
+  // when the route view sits inside a scroll container (e.g. the swipe
+  // deck's root page), a route change during a programmatic scroll would
+  // yank that container back to reveal the focused element.
   useEffect(() => {
     if (!containerRef.current) return;
     const autofocusEl = containerRef.current.querySelector<HTMLElement>("[data-autofocus]");
     if (autofocusEl) {
-      autofocusEl.focus();
+      autofocusEl.focus({ preventScroll: true });
     } else {
-      containerRef.current.focus();
+      containerRef.current.focus({ preventScroll: true });
     }
   }, [path]);
 
