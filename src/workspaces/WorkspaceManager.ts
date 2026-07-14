@@ -394,8 +394,16 @@ export class WorkspaceManager {
     const channelPair = this.createChannelPair(descriptor.id);
     this.channels.set(descriptor.id, channelPair);
 
+    // Install an explicit origin as the background route: replace the
+    // current entry so the launching page drops out of history, then let the
+    // workspace URL be pushed on top of it below. Runs only after auth
+    // passed — a rejected open() must leave the route untouched.
+    if (input.origin !== undefined) {
+      this._navigate(input.origin, { replace: true });
+    }
+
     // Store origin — the current route path (never a workspace URL).
-    const origin = this.getCurrentPath();
+    const origin = input.origin ?? this.getCurrentPath();
     this.origins.set(descriptor.id, origin);
 
     // Open in adapter

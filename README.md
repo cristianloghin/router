@@ -679,7 +679,7 @@ function WorkspaceManager() {
 
 | Method | Signature | Description |
 |---|---|---|
-| `open` | `(input) => Promise<WorkspaceDescriptor>` | Open a new workspace instance. Rejects with `WorkspaceError` on auth failure or limit exceeded. |
+| `open` | `(input) => Promise<WorkspaceDescriptor>` | Open a new workspace instance. Rejects with `WorkspaceError` on auth failure or limit exceeded. `input.origin` (optional route path) installs a different background route first, replacing the current history entry — use it when the launching page (e.g. a creation form) should not be returned to by close, swipe-to-root, or the browser back button. |
 | `focus` | `(id: string) => Promise<WorkspaceDescriptor>` | Focus an open workspace. |
 | `close` | `(id: string, autoFocus?: boolean) => Promise<void>` | Close a workspace. Navigates back to the origin route. |
 | `updateParams` | `(id, params) => WorkspaceDescriptor` | Update workspace params (partial merge). Replaces the URL only when the workspace is the focused one. |

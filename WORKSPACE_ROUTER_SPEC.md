@@ -899,6 +899,21 @@ interface OpenWorkspaceInput<TKey, TParams> {
   template: TKey;
   title: string;
   params: TParams;
+  /**
+   * Route to install as the workspace's background before opening.
+   * When given, the current history entry is REPLACED with this route,
+   * then the workspace URL is pushed — so the root page shows it, swipe-
+   * to-root and close() return to it, and the browser back button skips
+   * the launching page entirely.
+   *
+   * Use when the launching page should not be returned to (e.g. a
+   * "create workspace" form). Omitted: the origin is wherever the router
+   * currently is, unchanged.
+   *
+   * Applied only after the auth check passes — a rejected open() leaves
+   * the route untouched.
+   */
+  origin?: string;
 }
 
 // Infers TParams from a WorkspaceTemplate<TParams>

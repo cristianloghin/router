@@ -115,6 +115,7 @@ function makeManager(opts: {
   navigate?: ReturnType<typeof vi.fn>;
   persist?: { version: number };
   maxWorkspaces?: number;
+  getCurrentPath?: () => string;
 } = {}) {
   const adapter = makeMockAdapter(opts.initialWorkspaces ?? []);
   const guard = new WorkspaceGuard({ isAuthenticated: opts.isAuthenticated ?? (() => true) });
@@ -140,6 +141,7 @@ function makeManager(opts: {
     templates,
     ...(opts.persist !== undefined ? { persist: opts.persist } : {}),
     ...(opts.maxWorkspaces !== undefined ? { maxWorkspaces: opts.maxWorkspaces } : {}),
+    ...(opts.getCurrentPath !== undefined ? { getCurrentPath: opts.getCurrentPath } : {}),
   });
   return { manager, adapter, navigate, bus };
 }
@@ -187,6 +189,56 @@ describe("WorkspaceManager: open — auth passes", () => {
     const d = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
     const [, opts] = navigate.mock.calls[0] as [string, { state?: { workspaceId?: string } }];
     expect(opts?.state?.workspaceId).toBe(d.id);
+  });
+});
+
+describe("WorkspaceManager: open — explicit origin", () => {
+  it("replace-navigates to the origin route before pushing the workspace URL", async () => {
+    const { manager, navigate } = makeManager();
+    const d = await manager.open({
+      template: "cam",
+      title: "Feed",
+      params: { cameraId: "c1" },
+      origin: "/",
+    });
+    expect(navigate.mock.calls.length).toBe(2);
+    const [originUrl, originOpts] = navigate.mock.calls[0] as [string, { replace?: boolean }];
+    expect(originUrl).toBe("/");
+    expect(originOpts?.replace).toBe(true);
+    const [wsUrl] = navigate.mock.calls[1] as [string];
+    expect(wsUrl).toContain(`/workspace/cam/${d.id}`);
+  });
+
+  it("close() returns to the explicit origin, not the launching route", async () => {
+    const { manager, navigate } = makeManager({ getCurrentPath: () => "/create-workspace" });
+    const d = await manager.open({
+      template: "cam",
+      title: "Feed",
+      params: { cameraId: "c1" },
+      origin: "/",
+    });
+    navigate.mockClear();
+    await manager.close(d.id);
+    const [closeUrl] = navigate.mock.calls[0] as [string];
+    expect(closeUrl).toBe("/");
+  });
+
+  it("does not touch the route when auth rejects the open", async () => {
+    const { manager, navigate } = makeManager({ isAuthenticated: () => false });
+    await expect(
+      manager.open({ template: "secured", title: "S", params: {}, origin: "/" }),
+    ).rejects.toThrow(WorkspaceError);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("without origin, the origin is the current route (unchanged behavior)", async () => {
+    const { manager, navigate } = makeManager({ getCurrentPath: () => "/somewhere" });
+    const d = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    expect(navigate.mock.calls.length).toBe(1);
+    navigate.mockClear();
+    await manager.close(d.id);
+    const [closeUrl] = navigate.mock.calls[0] as [string];
+    expect(closeUrl).toBe("/somewhere");
   });
 });
 
