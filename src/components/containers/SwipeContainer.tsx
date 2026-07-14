@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWorkspaces } from "../../workspaces/hooks";
 import { useRouterStore } from "../../router/context";
 import { useWorkspaceManagerContext, useWorkspaceTemplates } from "../../workspaces/context";
@@ -50,6 +50,8 @@ export function SwipeContainer({
   const targetPageRef = useRef<number | null>(null);
   /** Last page the scroll handler settled on. */
   const settledPageRef = useRef<number>(0);
+  /** Page of a just-opened workspace; jumped to after its page commits. */
+  const pendingJumpRef = useRef<number | null>(null);
 
   const hasRootPage = children !== undefined && children !== null;
   const rootOffset = hasRootPage ? 1 : 0;
@@ -120,20 +122,34 @@ export function SwipeContainer({
         return;
       }
 
-      const track = trackRef.current;
-      if (!track) return;
       const index = manager.getAll().findIndex((w) => w.id === workspaceId);
       if (index === -1) return;
       const page = index + rootOffset;
       settledPageRef.current = page;
       if (smooth) {
+        const track = trackRef.current;
+        if (!track) return;
         targetPageRef.current = page;
         track.scrollTo({ left: page * pageWidthOf(track), behavior: "smooth" });
       } else {
-        track.scrollTo({ left: page * pageWidthOf(track) });
+        // The event fires before React commits the new workspace's page, so a
+        // scroll issued now would clamp against the old scrollWidth and land
+        // short (visibly: the deck stays where it was). Record the jump; the
+        // layout effect below performs it right after the commit that adds
+        // the page, before paint.
+        pendingJumpRef.current = page;
       }
     });
   }, [manager, rootOffset, pageWidthOf]);
+
+  // Executes a deferred open-jump once the new page is in the DOM.
+  useLayoutEffect(() => {
+    const page = pendingJumpRef.current;
+    const track = trackRef.current;
+    if (page === null || !track) return;
+    pendingJumpRef.current = null;
+    track.scrollTo({ left: page * pageWidthOf(track) });
+  }, [workspaces, pageWidthOf]);
 
   // Orientation change: re-snap to the settled page (page width changed).
   useEffect(() => {

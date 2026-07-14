@@ -456,3 +456,36 @@ describe("SwipeContainer: root settle preserves query string", () => {
     expect(window.location.search).toBe("?filter=active&sort=name");
   });
 });
+
+// ─── open jumps only after the new page is committed ─────────────────────────
+
+describe("SwipeContainer: open-jump timing", () => {
+  it("scrolls to a newly opened workspace only once its page exists in the DOM (regression: clamped scroll)", async () => {
+    // In a real browser a scroll issued before the new page is committed
+    // clamps against the old scrollWidth and lands short. jsdom doesn't
+    // clamp, so instead we record, at every track scroll, whether the
+    // workspace page was already in the DOM — it must always be.
+    const pagePresentAtCall: boolean[] = [];
+    scrollToSpy.mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute("data-role") === "swipe-track") {
+        pagePresentAtCall.push(this.querySelectorAll("[data-workspace-id]").length > 0);
+      }
+    });
+
+    render(
+      <Provider>
+        <Opener title="A" />
+        <SwipeContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </SwipeContainer>
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-A"));
+    });
+
+    // The jump happened, and never against a track that lacked the page.
+    expect(pagePresentAtCall.length).toBeGreaterThan(0);
+    expect(pagePresentAtCall.every(Boolean)).toBe(true);
+  });
+});
