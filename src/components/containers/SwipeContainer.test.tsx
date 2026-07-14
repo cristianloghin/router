@@ -8,6 +8,8 @@ import { useWorkspaceContainer } from "./containerContext";
 import { defineRoutes } from "../../router/RouteRegistry";
 import { defineWorkspaces } from "../../workspaces/defineWorkspaces";
 import { useWorkspaces } from "../../workspaces/hooks";
+import { useNavigation } from "../../router/hooks";
+import { RouterView } from "../RouterView";
 import { useWorkspaceManagerContext } from "../../workspaces/context";
 import type { WorkspaceComponentProps } from "../../workspaces/types";
 
@@ -95,6 +97,13 @@ function getTrack(): HTMLElement {
   const track = document.querySelector("[data-role='swipe-track']") as HTMLElement;
   expect(track).not.toBeNull();
   return track;
+}
+
+/** Programmatic track scrolls are deferred one frame (snap re-resolution). */
+async function nextFrame(): Promise<void> {
+  await act(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
 }
 
 /** jsdom has no layout — stub the track's scrollWidth and set scrollLeft. */
@@ -335,6 +344,7 @@ describe("SwipeContainer: programmatic focus scrolls the track", () => {
     await act(async () => {
       await userEvent.click(screen.getByTestId("focus-first")); // workspace A → page 1
     });
+    await nextFrame();
     expect(scrollToSpy).toHaveBeenCalledWith({ left: 100, behavior: "smooth" });
   });
 
@@ -483,9 +493,60 @@ describe("SwipeContainer: open-jump timing", () => {
     await act(async () => {
       await userEvent.click(screen.getByTestId("open-A"));
     });
+    await nextFrame();
 
     // The jump happened, and never against a track that lacked the page.
     expect(pagePresentAtCall.length).toBeGreaterThan(0);
     expect(pagePresentAtCall.every(Boolean)).toBe(true);
+  });
+});
+
+// ─── route replace + open in the same handler (CreateWorkspace flow) ─────────
+
+describe("SwipeContainer: route replace followed by open in one handler", () => {
+  it("ends on the workspace URL with the deck jumped to its page", async () => {
+    function CreatePage() {
+      const { navigate } = useNavigation();
+      const { open } = useWorkspaces();
+      return (
+        <button
+          data-testid="confirm"
+          onClick={async () => {
+            navigate("/", { replace: true });
+            await open({ template: "cam", title: "W", params: {} });
+          }}
+        >
+          Confirm
+        </button>
+      );
+    }
+    const flowRoutes = defineRoutes({
+      "/": { component: () => <div data-testid="home">Home</div> },
+      "/create": { component: CreatePage },
+    });
+
+    window.history.replaceState(null, "", "/create");
+    render(
+      <AppProvider routes={flowRoutes} workspaces={workspaces} config={{ adapter: "swipe" }}>
+        <SwipeContainer>
+          <RouterView />
+        </SwipeContainer>
+      </AppProvider>,
+    );
+    expect(screen.getByTestId("confirm")).toBeInTheDocument();
+
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("confirm"));
+    });
+    await nextFrame();
+
+    // The route replace landed first, then open() pushed the workspace URL.
+    expect(window.location.pathname).toMatch(/^\/workspace\/cam\//);
+    // Root page now renders Home (route replace took effect) and the
+    // workspace page exists in the deck.
+    expect(screen.getByTestId("home")).toBeInTheDocument();
+    expect(document.querySelector("[data-workspace-id]")).not.toBeNull();
+    // The deck jumped to page 1 (the workspace page).
+    expect(scrollToSpy).toHaveBeenCalled();
   });
 });

@@ -50,8 +50,10 @@ export function SwipeContainer({
   const targetPageRef = useRef<number | null>(null);
   /** Last page the scroll handler settled on. */
   const settledPageRef = useRef<number>(0);
-  /** Page of a just-opened workspace; jumped to after its page commits. */
-  const pendingJumpRef = useRef<number | null>(null);
+  /** Workspace ids whose pages were in the DOM after the last commit. */
+  const renderedIdsRef = useRef<Set<string>>(new Set());
+  /** Pending next-frame jump; latest wins. */
+  const jumpRafRef = useRef<number | null>(null);
 
   const hasRootPage = children !== undefined && children !== null;
   const rootOffset = hasRootPage ? 1 : 0;
@@ -103,53 +105,65 @@ export function SwipeContainer({
     }
   }, [manager, store, rootOffset, pageWidthOf]);
 
-  // Programmatic focus (and open, which focuses the new workspace) → scroll
-  // the track to that workspace's page and mark it settled. Focus scrolls
-  // smoothly and arms the feedback guard; open jumps instantly (a brand-new
-  // page — there is nothing to animate from, and no intermediate scroll
-  // events to suppress).
+  // Programmatic focus → smooth-scroll the track to that workspace's page,
+  // mark it settled, and arm the feedback guard. (Open-jumps are handled by
+  // the layout effect below, not here — the workspace:opened event fires
+  // before the new page is committed, and depending on when React flushes
+  // the store update the commit can even precede this subscriber.)
   useEffect(() => {
     return manager.subscribe((event) => {
-      let workspaceId: string;
-      let smooth: boolean;
-      if (event.type === "workspace:focused") {
-        workspaceId = event.workspaceId;
-        smooth = true;
-      } else if (event.type === "workspace:opened") {
-        workspaceId = event.workspace.id;
-        smooth = false;
-      } else {
-        return;
-      }
-
-      const index = manager.getAll().findIndex((w) => w.id === workspaceId);
+      if (event.type !== "workspace:focused") return;
+      const index = manager.getAll().findIndex((w) => w.id === event.workspaceId);
       if (index === -1) return;
+      const track = trackRef.current;
+      if (!track) return;
       const page = index + rootOffset;
       settledPageRef.current = page;
-      if (smooth) {
-        const track = trackRef.current;
-        if (!track) return;
-        targetPageRef.current = page;
+      targetPageRef.current = page;
+      // Same one-frame deferral as the open-jump below: a focus() often
+      // follows an updateParams() whose commit mutates page layout in this
+      // same frame, and the snap container would discard the scroll.
+      if (jumpRafRef.current !== null) cancelAnimationFrame(jumpRafRef.current);
+      jumpRafRef.current = requestAnimationFrame(() => {
+        jumpRafRef.current = null;
         track.scrollTo({ left: page * pageWidthOf(track), behavior: "smooth" });
-      } else {
-        // The event fires before React commits the new workspace's page, so a
-        // scroll issued now would clamp against the old scrollWidth and land
-        // short (visibly: the deck stays where it was). Record the jump; the
-        // layout effect below performs it right after the commit that adds
-        // the page, before paint.
-        pendingJumpRef.current = page;
-      }
+      });
     });
   }, [manager, rootOffset, pageWidthOf]);
 
-  // Executes a deferred open-jump once the new page is in the DOM.
+  // Open-jump, derived from rendered state instead of events: when a commit
+  // adds a page whose workspace is current (open() focuses the workspace it
+  // creates; a persistence restore focuses one on first render), jump the
+  // deck to it — the page is in the DOM by definition, with no dependence
+  // on event/commit ordering.
+  //
+  // The jump itself is deferred one frame. The commit that adds the page can
+  // also mutate other pages' layout (e.g. open({origin}) swaps the root
+  // page's route in the same commit). A scroll-snap container re-resolves
+  // its snap target after such layout changes and overrides any scroll
+  // issued in the same frame — the browser silently discards it (observed
+  // in Chromium: scrollTo ran with valid bounds, no scroll event followed,
+  // position stayed put). One frame later the snap state is settled and the
+  // scroll both lands and becomes the new snap target.
   useLayoutEffect(() => {
-    const page = pendingJumpRef.current;
+    const prev = renderedIdsRef.current;
+    const next = new Set(workspaces.map((w) => w.id));
+    renderedIdsRef.current = next;
+
     const track = trackRef.current;
-    if (page === null || !track) return;
-    pendingJumpRef.current = null;
-    track.scrollTo({ left: page * pageWidthOf(track) });
-  }, [workspaces, pageWidthOf]);
+    if (!track) return;
+    const current = manager.getCurrent();
+    if (!current || prev.has(current.id)) return;
+    const index = workspaces.findIndex((w) => w.id === current.id);
+    if (index === -1) return;
+    const page = index + rootOffset;
+    settledPageRef.current = page;
+    if (jumpRafRef.current !== null) cancelAnimationFrame(jumpRafRef.current);
+    jumpRafRef.current = requestAnimationFrame(() => {
+      jumpRafRef.current = null;
+      track.scrollTo({ left: page * pageWidthOf(track) });
+    });
+  }, [workspaces, manager, rootOffset, pageWidthOf]);
 
   // Orientation change: re-snap to the settled page (page width changed).
   useEffect(() => {
