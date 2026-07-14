@@ -76,21 +76,30 @@ function Actions() {
   );
 }
 
-// jsdom does not implement scrollTo — define a stub before spying.
+// jsdom does not implement scrollTo/scrollIntoView — define stubs before spying.
 if (!HTMLElement.prototype.scrollTo) {
   HTMLElement.prototype.scrollTo = function () {};
+}
+if (!HTMLElement.prototype.scrollIntoView) {
+  HTMLElement.prototype.scrollIntoView = function () {};
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let scrollToSpy: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let scrollIntoViewSpy: any;
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
   scrollToSpy = vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(() => {});
+  scrollIntoViewSpy = vi
+    .spyOn(HTMLElement.prototype, "scrollIntoView")
+    .mockImplementation(() => {});
 });
 
 afterEach(() => {
   scrollToSpy.mockRestore();
+  scrollIntoViewSpy.mockRestore();
 });
 
 function getTrack(): HTMLElement {
@@ -99,12 +108,6 @@ function getTrack(): HTMLElement {
   return track;
 }
 
-/** Programmatic track scrolls are deferred one frame (snap re-resolution). */
-async function nextFrame(): Promise<void> {
-  await act(async () => {
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  });
-}
 
 /** jsdom has no layout — stub the track's scrollWidth and set scrollLeft. */
 function scrollTrackTo(track: HTMLElement, scrollWidth: number, scrollLeft: number): void {
@@ -338,14 +341,19 @@ describe("SwipeContainer: programmatic focus scrolls the track", () => {
       await userEvent.click(screen.getByTestId("open-A"));
       await userEvent.click(screen.getByTestId("open-B"));
     });
-    const track = getTrack();
-    Object.defineProperty(track, "scrollWidth", { value: 300, configurable: true });
-    scrollToSpy.mockClear();
+    scrollIntoViewSpy.mockClear();
     await act(async () => {
       await userEvent.click(screen.getByTestId("focus-first")); // workspace A → page 1
     });
-    await nextFrame();
-    expect(scrollToSpy).toHaveBeenCalledWith({ left: 100, behavior: "smooth" });
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({
+      behavior: "smooth",
+      inline: "start",
+      block: "nearest",
+    });
+    // The scroll target is workspace A's own page element.
+    const target = scrollIntoViewSpy.mock.instances[0] as HTMLElement;
+    const firstWorkspacePage = getTrack().querySelector("[data-workspace-id]");
+    expect(target).toBe(firstWorkspacePage);
   });
 
   it("scroll events during the programmatic scroll are ignored (feedback guard)", async () => {
@@ -470,16 +478,15 @@ describe("SwipeContainer: root settle preserves query string", () => {
 // ─── open jumps only after the new page is committed ─────────────────────────
 
 describe("SwipeContainer: open-jump timing", () => {
-  it("scrolls to a newly opened workspace only once its page exists in the DOM (regression: clamped scroll)", async () => {
-    // In a real browser a scroll issued before the new page is committed
-    // clamps against the old scrollWidth and lands short. jsdom doesn't
-    // clamp, so instead we record, at every track scroll, whether the
-    // workspace page was already in the DOM — it must always be.
-    const pagePresentAtCall: boolean[] = [];
-    scrollToSpy.mockImplementation(function (this: HTMLElement) {
-      if (this.getAttribute("data-role") === "swipe-track") {
-        pagePresentAtCall.push(this.querySelectorAll("[data-workspace-id]").length > 0);
-      }
+  it("jumps by calling scrollIntoView on the new workspace's own page element (regression: lost jump)", async () => {
+    // Regression lineage: a scrollTo issued before the page was committed
+    // clamped to nothing; a deferred scrollTo was discarded by snap-target
+    // re-resolution. The contract now: the jump targets the page ELEMENT
+    // itself (making it the browser's tracked snap target), which is
+    // connected to the document at call time.
+    const connectedAtCall: boolean[] = [];
+    scrollIntoViewSpy.mockImplementation(function (this: HTMLElement) {
+      connectedAtCall.push(this.isConnected && this.dataset.workspaceId !== undefined);
     });
 
     render(
@@ -493,11 +500,10 @@ describe("SwipeContainer: open-jump timing", () => {
     await act(async () => {
       await userEvent.click(screen.getByTestId("open-A"));
     });
-    await nextFrame();
 
-    // The jump happened, and never against a track that lacked the page.
-    expect(pagePresentAtCall.length).toBeGreaterThan(0);
-    expect(pagePresentAtCall.every(Boolean)).toBe(true);
+    // The jump happened, always against a connected workspace page element.
+    expect(connectedAtCall.length).toBeGreaterThan(0);
+    expect(connectedAtCall.every(Boolean)).toBe(true);
   });
 });
 
@@ -538,15 +544,16 @@ describe("SwipeContainer: route replace followed by open in one handler", () => 
     await act(async () => {
       await userEvent.click(screen.getByTestId("confirm"));
     });
-    await nextFrame();
 
     // The route replace landed first, then open() pushed the workspace URL.
     expect(window.location.pathname).toMatch(/^\/workspace\/cam\//);
     // Root page now renders Home (route replace took effect) and the
     // workspace page exists in the deck.
     expect(screen.getByTestId("home")).toBeInTheDocument();
-    expect(document.querySelector("[data-workspace-id]")).not.toBeNull();
-    // The deck jumped to page 1 (the workspace page).
-    expect(scrollToSpy).toHaveBeenCalled();
+    const page = document.querySelector("[data-workspace-id]");
+    expect(page).not.toBeNull();
+    // The deck jumped to the workspace's page element.
+    expect(scrollIntoViewSpy).toHaveBeenCalled();
+    expect(scrollIntoViewSpy.mock.instances).toContain(page);
   });
 });
