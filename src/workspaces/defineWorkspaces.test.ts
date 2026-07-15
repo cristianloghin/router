@@ -34,6 +34,15 @@ describe("defineWorkspaces", () => {
     expect(ws.wall.maxInstances).toBe(4);
   });
 
+  it("persistent defaults to true and preserves an explicit false", () => {
+    const ws = defineWorkspaces({
+      report: { component: Stub },
+      scratch: { component: Stub, persistent: false },
+    }) as Record<string, { persistent?: boolean }>;
+    expect(ws["report"]?.persistent).toBe(true);
+    expect(ws["scratch"]?.persistent).toBe(false);
+  });
+
   it("template with schema preserves the schema", () => {
     const ws = defineWorkspaces({
       feed: {

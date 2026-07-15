@@ -136,6 +136,11 @@ function makeManager(opts: {
       component: () => null,
       auth: { type: "authenticated" as const },
     },
+    scratch: {
+      component: () => null,
+      auth: { type: "public" as const },
+      persistent: false,
+    },
   };
   const manager = new WorkspaceManager({
     adapter,
@@ -618,20 +623,20 @@ interface PersistedShape {
 }
 
 function readPersisted(version: number): PersistedShape | null {
-  const raw = window.sessionStorage.getItem(`ws:v${version}`);
+  const raw = window.localStorage.getItem(`ws:v${version}`);
   return raw ? (JSON.parse(raw) as PersistedShape) : null;
 }
 
 describe("WorkspaceManager: persistence — writing", () => {
   beforeEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
     window.history.replaceState(null, "", "/alerts");
   });
 
-  it("does not write to sessionStorage when persist is not configured", async () => {
+  it("does not write to localStorage when persist is not configured", async () => {
     const { manager } = makeManager();
     await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
-    expect(window.sessionStorage.length).toBe(0);
+    expect(window.localStorage.length).toBe(0);
   });
 
   it("writes descriptors to ws:v{version} after open()", async () => {
@@ -666,16 +671,33 @@ describe("WorkspaceManager: persistence — writing", () => {
     await manager.close(d.id);
     expect(readPersisted(1)?.workspaces).toEqual([]);
   });
+
+  it("excludes templates declared persistent: false", async () => {
+    const { manager } = makeManager({ persist: { version: 1 } });
+    const kept = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    await manager.open({ template: "scratch", title: "Scratch", params: {} });
+    const stored = readPersisted(1);
+    expect(stored?.workspaces.map((w) => w.id)).toEqual([kept.id]);
+    expect(Object.keys(stored?.origins ?? {})).toEqual([kept.id]);
+  });
+
+  it("does not persist a currentId pointing at an ephemeral workspace", async () => {
+    const { manager } = makeManager({ persist: { version: 1 } });
+    await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    // scratch is opened last → focused, but must not leave a dangling currentId
+    await manager.open({ template: "scratch", title: "Scratch", params: {} });
+    expect(readPersisted(1)?.currentId).toBeNull();
+  });
 });
 
 describe("WorkspaceManager: persistence — restoring", () => {
   beforeEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
     window.history.replaceState(null, "", "/");
   });
 
   function seed(version: number, state: PersistedShape): void {
-    window.sessionStorage.setItem(`ws:v${version}`, JSON.stringify(state));
+    window.localStorage.setItem(`ws:v${version}`, JSON.stringify(state));
   }
 
   it("restores stored descriptors via adapter.restoreState on construction", () => {
@@ -715,14 +737,14 @@ describe("WorkspaceManager: persistence — restoring", () => {
     seed(1, { workspaces: [d], currentId: d.id, origins: {} });
     const { adapter } = makeManager({ persist: { version: 2 } });
     expect(adapter.restoreState).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem("ws:v1")).toBeNull();
+    expect(window.localStorage.getItem("ws:v1")).toBeNull();
   });
 
   it("discards corrupt JSON without throwing", () => {
-    window.sessionStorage.setItem("ws:v1", "{not json");
+    window.localStorage.setItem("ws:v1", "{not json");
     const { adapter } = makeManager({ persist: { version: 1 } });
     expect(adapter.restoreState).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem("ws:v1")).toBeNull();
+    expect(window.localStorage.getItem("ws:v1")).toBeNull();
   });
 
   it("skips restored workspaces whose template no longer exists", () => {
@@ -732,6 +754,15 @@ describe("WorkspaceManager: persistence — restoring", () => {
     const { adapter } = makeManager({ persist: { version: 1 } });
     const [restored] = (adapter.restoreState as ReturnType<typeof vi.fn>).mock.calls[0] as [WorkspaceDescriptor[]];
     expect(restored.map((w) => w.id)).toEqual(["ws-known"]);
+  });
+
+  it("skips restored workspaces whose template became persistent: false", () => {
+    const kept = makeDescriptor("ws-kept", "cam");
+    const ephemeral = makeDescriptor("ws-eph", "scratch");
+    seed(1, { workspaces: [kept, ephemeral], currentId: null, origins: {} });
+    const { adapter } = makeManager({ persist: { version: 1 } });
+    const [restored] = (adapter.restoreState as ReturnType<typeof vi.fn>).mock.calls[0] as [WorkspaceDescriptor[]];
+    expect(restored.map((w) => w.id)).toEqual(["ws-kept"]);
   });
 
   it("round-trips: state persisted by one manager is restored by the next", async () => {
@@ -746,11 +777,11 @@ describe("WorkspaceManager: persistence — restoring", () => {
 
 describe("WorkspaceManager: persistence — storage unavailable", () => {
   beforeEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
-  it("degrades to no persistence when sessionStorage access throws", async () => {
-    const spy = vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+  it("degrades to no persistence when localStorage access throws", async () => {
+    const spy = vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
       throw new Error("denied");
     });
     const { manager } = makeManager({ persist: { version: 1 } });
@@ -758,7 +789,7 @@ describe("WorkspaceManager: persistence — storage unavailable", () => {
       manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } }),
     ).resolves.toBeDefined();
     spy.mockRestore();
-    expect(window.sessionStorage.length).toBe(0);
+    expect(window.localStorage.length).toBe(0);
   });
 
   it("ignores setItem failures (quota exceeded)", async () => {
@@ -990,7 +1021,7 @@ describe("WorkspaceManager: persist.version runtime guard", () => {
   });
 
   it("accepts version 0", () => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
     expect(() => makeManager({ persist: { version: 0 } })).not.toThrow();
   });
 });

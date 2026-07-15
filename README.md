@@ -162,7 +162,7 @@ The single root provider. Must wrap your entire application.
 |---|---|---|---|
 | `adapter` | `"auto" \| "stack" \| "swipe" \| "tabs"` | `"auto"` | Workspace layout adapter. `auto` picks `swipe` on coarse pointers, otherwise `stack` (never `tabs`). |
 | `maxWorkspaces` | `number` | `10` | Maximum total open workspaces across all templates. |
-| `persist` | `{ version: number }` | off | Persist workspace state in `sessionStorage`; bumping `version` invalidates old persisted state. |
+| `persist` | `{ version: number }` | off | Persist workspace state in `localStorage` — open workspaces survive a full app restart (e.g. a PWA being closed and reopened). Bumping `version` invalidates old persisted state. Templates opt out per-type via `persistent: false`. |
 | `defaultLoading` | `React.ComponentType \| React.ReactNode` | `null` | Fallback shown during route/lazy load suspense |
 | `defaultError` | `React.ComponentType<RouteErrorProps>` | Built-in | Fallback shown when a route throws |
 | `auth.isAuthenticated` | `() => boolean \| Promise<boolean>` | `() => false` | Used by `authenticated` workspace auth rules |
@@ -558,6 +558,7 @@ const workspaces = defineWorkspaces({
 | `auth` | `WorkspaceAuthRule` | Access control rule (default: `{ type: "public" }`) |
 | `maxInstances` | `number` | Maximum number of simultaneously open instances |
 | `schema` | `Record<string, ParamType>` | Single source of truth for params: drives URL serialization **and** the TypeScript param types |
+| `persistent` | `boolean` (default `true`) | Whether instances survive an app restart when `config.persist` is enabled. Set `false` for ephemeral templates (a scratchpad); leave on for durable ones (a report). |
 | `defaultTitle` | `string \| ((params) => string)` | Default title if none provided to `open()` |
 
 **The schema is schema-first:** `workspace.params` in the component, and the `params` arguments to `open()`/`updateParams()`, are *inferred* from `schema` — declare the shape once, no separate params type and no casts. `cameraFeed` above gives `params: { cameraId: string; quality: number }` everywhere. Templates without a schema get loosely typed string params.

@@ -206,7 +206,7 @@ describe("AppProvider: workspace URLs transparent to router", () => {
 
 describe("AppProvider: workspace persistence", () => {
   beforeEach(() => {
-    window.sessionStorage.clear();
+    window.localStorage.clear();
     window.history.replaceState(null, "", "/");
   });
 
@@ -262,7 +262,7 @@ describe("AppProvider: workspace persistence", () => {
       }),
     });
     expect(second.result.current.workspaces).toEqual([]);
-    expect(window.sessionStorage.getItem("ws:v1")).toBeNull();
+    expect(window.localStorage.getItem("ws:v1")).toBeNull();
   });
 });
 

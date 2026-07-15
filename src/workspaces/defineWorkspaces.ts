@@ -26,6 +26,7 @@ export function defineWorkspaces<
     normalised[key] = {
       ...template,
       auth: template.auth ?? { type: "public" },
+      persistent: template.persistent ?? true,
     };
   }
   return Object.freeze(normalised) as TMap;

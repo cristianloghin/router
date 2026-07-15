@@ -31,6 +31,9 @@ const adapter = (localStorage.getItem(ADAPTER_KEY) ?? "stack") as NonNullable<Ap
 const config: AppConfig = {
   adapter,
   maxWorkspaces: 5,
+  // localStorage persistence: reports/cameras survive a reload, the
+  // scratchpad (persistent: false) does not.
+  persist: { version: 1 },
   auth: {
     isAuthenticated: () => authStore.loggedIn,
   },

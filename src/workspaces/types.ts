@@ -83,6 +83,12 @@ export interface WorkspaceTemplate<TParams extends WorkspaceParams = WorkspacePa
   auth?: WorkspaceAuthRule;
   maxInstances?: number;
   schema?: Partial<Record<keyof TParams & string, ParamSchema[string]>>;
+  /**
+   * Whether instances of this template survive an app restart when
+   * `config.persist` is enabled (default: true). Set false for ephemeral
+   * templates (e.g. a scratchpad) that should never be restored.
+   */
+  persistent?: boolean;
 }
 
 // The templates map.
