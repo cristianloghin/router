@@ -113,6 +113,67 @@ describe("BrowserTabAdapter: close", () => {
     await adapter.close("uuid-other");
     expect(closeSpy).not.toHaveBeenCalled();
   });
+
+  it("removes the workspace from the list and emits workspace:closed", async () => {
+    const adapter = new BrowserTabAdapter();
+    const d = makeDescriptor("uuid-1");
+    await adapter.open(d);
+
+    const events: string[] = [];
+    adapter.subscribe((e) => { if (e.type === "workspace:closed") events.push(e.workspaceId); });
+
+    await adapter.close("uuid-1");
+    expect(adapter.getAll()).toEqual([]);
+    expect(events).toEqual(["uuid-1"]);
+  });
+
+  it("broadcasts workspace:closed so the workspace's own tab can close itself", async () => {
+    const adapter = new BrowserTabAdapter();
+    const d = makeDescriptor("uuid-1");
+    await adapter.open(d);
+
+    const bc = MockBroadcastChannel.instances[0]!;
+    await adapter.close("uuid-1");
+    expect(bc.postMessage).toHaveBeenCalledWith({ type: "workspace:closed", workspaceId: "uuid-1" });
+  });
+
+  it("a workspace tab closes itself on receiving workspace:closed for its workspace", async () => {
+    const closeSpy = vi.fn();
+    vi.stubGlobal("close", closeSpy);
+
+    window.history.replaceState(null, "", "/workspace/cameraFeed/uuid-own");
+    const adapter = new BrowserTabAdapter();
+    const d = makeDescriptor("uuid-own");
+    await adapter.open(d); // adoption — this IS the workspace's tab
+
+    // Broadcast from another tab (e.g. the launching app closed it).
+    const bc = MockBroadcastChannel.instances[0]!;
+    bc.onmessage!(
+      new MessageEvent("message", {
+        data: { type: "workspace:closed", workspaceId: "uuid-own" },
+      }),
+    );
+
+    expect(closeSpy).toHaveBeenCalled();
+    expect(adapter.getAll()).toEqual([]);
+  });
+});
+
+// ─── open: direct-access adoption ─────────────────────────────────────────────
+
+describe("BrowserTabAdapter: open adopts its own workspace without spawning", () => {
+  it("skips window.open when this tab's URL already is the workspace's URL", async () => {
+    const d = makeDescriptor("uuid-self");
+    window.history.replaceState(null, "", "/workspace/cameraFeed/uuid-self");
+
+    const adapter = new BrowserTabAdapter();
+    await adapter.open(d);
+
+    // Spawning here would popup-loop: every workspace tab would open another.
+    expect(window.open).not.toHaveBeenCalled();
+    expect(adapter.getAll()).toHaveLength(1);
+    expect(adapter.getCurrent()?.id).toBe("uuid-self");
+  });
 });
 
 // ─── getCurrent ───────────────────────────────────────────────────────────────

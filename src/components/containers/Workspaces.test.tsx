@@ -76,6 +76,15 @@ describe("Workspaces: prop passthrough", () => {
     expect(screen.getByTestId("root-page")).toBeInTheDocument();
   });
 
+  it("passes children through under the tabs adapter (launching tab)", () => {
+    renderWith("tabs", (
+      <Workspaces>
+        <div data-testid="root-page">Dashboard</div>
+      </Workspaces>
+    ));
+    expect(screen.getByTestId("root-page")).toBeInTheDocument();
+  });
+
   it("passes renderWorkspace through to the selected container", async () => {
     renderWith("stack", (
       <Workspaces

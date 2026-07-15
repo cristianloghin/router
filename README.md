@@ -626,7 +626,7 @@ The per-adapter containers are internal — `<Workspaces>` always renders the on
 
 **Containers are headless.** They inject no buttons or UI copy — wrap each workspace's content in your own chrome with the `renderWorkspace` prop (`(workspace, content) => ReactNode`, default: renders `content` bare) and drive focus/close from your chrome via `useWorkspaces()`.
 
-**`children` as the root page.** Under the swipe adapter, `children` becomes page 0 of the swipe track — the deck starts at your dashboard. Under the stack adapter, `children` renders whenever no workspace URL is focused. Under tabs, `children` is not used (each workspace lives in its own browser tab).
+**`children` as the root page.** Under the swipe adapter, `children` becomes page 0 of the swipe track — the deck starts at your dashboard. Under the stack adapter, `children` renders whenever no workspace URL is focused. Under tabs, `children` renders in the launching tab alongside a strip of open workspaces — a workspace's content renders **only** in its own browser tab, never inline in the launching app, and the launching tab's URL never changes.
 
 **Scroll→URL sync (swipe adapter, on by default).** When a swipe settles on a workspace page, the adapter index updates (without emitting `workspace:focused`) and the URL is *replaced* with that workspace's URL; settling on the root page replaces the URL with the current route path. Swiping never pushes history entries, fires navigation events, or triggers `usePrompt`. Programmatic `focus()` smooth-scrolls the deck to the workspace's page, and orientation changes re-snap to the settled page.
 

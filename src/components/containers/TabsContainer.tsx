@@ -1,5 +1,6 @@
 import React from "react";
 import { useWorkspaces } from "../../workspaces/hooks";
+import { useLocation } from "../../router/hooks";
 import { GatedWorkspaceContent } from "../../workspaces/auth/AuthGate";
 import { useWorkspaceManagerContext, useWorkspaceTemplates } from "../../workspaces/context";
 import type { RenderWorkspace } from "./containerContext";
@@ -8,66 +9,73 @@ import type { WorkspaceChannel } from "../../workspaces/types";
 // ─── TabsContainer ────────────────────────────────────────────────────────────
 
 export interface TabsContainerProps {
-  /** Wrap the current workspace's content in app-provided chrome. Default: bare. */
+  /** Root page content — rendered in the launching tab only. */
+  children?: React.ReactNode;
+  /** Wrap this tab's workspace content in app-provided chrome. Default: bare. */
   renderWorkspace?: RenderWorkspace;
 }
 
 /**
- * Renders the current workspace in a browser-tab style layout.
+ * Container for the tabs adapter. A workspace's content renders ONLY in its
+ * own browser tab — never inline in the launching app.
  *
- * - Displays a tab strip with all open workspaces (that IS this container's
- *   layout job, so it stays).
- * - Renders only the current workspace's component, through `renderWorkspace`
- *   when provided.
- * - No close/root button: browser tabs manage their own back navigation.
- * - Clicking a tab calls focus() to switch the active workspace.
+ * - In a workspace tab (this tab's URL is a workspace URL): renders that
+ *   workspace's content, through `renderWorkspace` when provided. No strip,
+ *   no root page.
+ * - In the launching tab: renders `children` (the root page) plus a tab
+ *   strip listing the open workspaces. No workspace content.
+ * - No close/root button: browser tabs manage their own lifecycle.
  */
-export function TabsContainer({ renderWorkspace }: TabsContainerProps): React.ReactElement {
+export function TabsContainer({ children, renderWorkspace }: TabsContainerProps): React.ReactElement {
   const { workspaces, current, focus } = useWorkspaces();
+  const { inWorkspace } = useLocation();
   const manager = useWorkspaceManagerContext();
   const templates = useWorkspaceTemplates();
 
-  const currentWorkspace = current ?? workspaces[workspaces.length - 1] ?? null;
+  // ─── Workspace tab: this browser tab IS the workspace ──────────────────────
+  if (inWorkspace) {
+    if (!current) return <div data-component="tabs-container" />;
 
+    const template = templates[current.template];
+    const pair = manager.getChannel(current.id);
+    if (!template || !pair) return <div data-component="tabs-container" />;
+
+    const content = (
+      <GatedWorkspaceContent
+        workspace={current}
+        channel={pair.workspace as WorkspaceChannel}
+        Component={template.component}
+      />
+    );
+
+    return (
+      <div data-component="tabs-container">
+        <div data-workspace-id={current.id} data-role="tab-content">
+          {renderWorkspace ? renderWorkspace(current, content) : content}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Launching tab: root page + strip of open workspaces ───────────────────
   return (
     <div data-component="tabs-container">
-      {/* Tab strip */}
-      <div role="tablist" data-role="tab-strip">
-        {workspaces.map((workspace) => (
-          <button
-            key={workspace.id}
-            role="tab"
-            aria-selected={workspace.id === currentWorkspace?.id}
-            data-workspace-id={workspace.id}
-            onClick={() => focus(workspace.id)}
-          >
-            {workspace.title}
-          </button>
-        ))}
-      </div>
-
-      {/* Current workspace content */}
-      {currentWorkspace && (() => {
-        const template = templates[currentWorkspace.template];
-        if (!template) return null;
-
-        const pair = manager.getChannel(currentWorkspace.id);
-        if (!pair) return null;
-
-        const content = (
-          <GatedWorkspaceContent
-            workspace={currentWorkspace}
-            channel={pair.workspace as WorkspaceChannel}
-            Component={template.component}
-          />
-        );
-
-        return (
-          <div data-workspace-id={currentWorkspace.id} data-role="tab-content">
-            {renderWorkspace ? renderWorkspace(currentWorkspace, content) : content}
-          </div>
-        );
-      })()}
+      {workspaces.length > 0 && (
+        <div role="tablist" data-role="tab-strip">
+          {workspaces.map((workspace) => (
+            <button
+              key={workspace.id}
+              role="tab"
+              aria-selected={false}
+              data-workspace-id={workspace.id}
+              onClick={() => focus(workspace.id)}
+            >
+              {workspace.title}
+            </button>
+          ))}
+        </div>
+      )}
+      {children}
     </div>
   );
 }

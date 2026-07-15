@@ -397,8 +397,9 @@ export class WorkspaceManager {
     // Install an explicit origin as the background route: replace the
     // current entry so the launching page drops out of history, then let the
     // workspace URL be pushed on top of it below. Runs only after auth
-    // passed — a rejected open() must leave the route untouched.
-    if (input.origin !== undefined) {
+    // passed — a rejected open() must leave the route untouched. (Not under
+    // tabs, where the launching tab's URL is never touched.)
+    if (input.origin !== undefined && this.urlBound) {
       this._navigate(input.origin, { replace: true });
     }
 
@@ -417,14 +418,26 @@ export class WorkspaceManager {
       throw this.adapterFailure(descriptor.id, "open", err);
     }
 
-    // Build URL and navigate
-    const url = this.buildUrl(descriptor);
-    this._navigate(url, {
-      state: { origin, workspaceId: descriptor.id },
-      navType: "workspace-open",
-    });
+    // Build URL and navigate. Under tabs the workspace lives in its own
+    // browser tab — the launching tab's URL never changes.
+    if (this.urlBound) {
+      const url = this.buildUrl(descriptor);
+      this._navigate(url, {
+        state: { origin, workspaceId: descriptor.id },
+        navType: "workspace-open",
+      });
+    }
 
     return descriptor;
+  }
+
+  /**
+   * Whether workspace state is reflected in this tab's URL. True for stack
+   * and swipe. False for tabs: each workspace renders only in its own
+   * browser tab, so open/focus/close must not touch this tab's URL.
+   */
+  private get urlBound(): boolean {
+    return this.adapter.type !== "tabs";
   }
 
   // ─── focus ───────────────────────────────────────────────────────────────────
@@ -441,8 +454,10 @@ export class WorkspaceManager {
       throw this.adapterFailure(id, "focus", err);
     }
 
-    const url = this.buildUrl(workspace);
-    this._navigate(url, { navType: "workspace-open" });
+    if (this.urlBound) {
+      const url = this.buildUrl(workspace);
+      this._navigate(url, { navType: "workspace-open" });
+    }
 
     return workspace;
   }
@@ -479,8 +494,11 @@ export class WorkspaceManager {
       throw this.adapterFailure(id, "close", err);
     }
 
-    // Navigate to origin
-    this._navigate(origin, { navType: "workspace-close" });
+    // Navigate to origin. Under tabs the launching tab never left its route
+    // (and the workspace's own tab is closing), so there is nothing to restore.
+    if (this.urlBound) {
+      this._navigate(origin, { navType: "workspace-close" });
+    }
   }
 
   /** Emits workspace:error and returns a WorkspaceError(ADAPTER_ERROR) to throw. */

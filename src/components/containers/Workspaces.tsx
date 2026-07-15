@@ -27,9 +27,10 @@ export function Workspaces({ children, renderWorkspace }: WorkspacesProps): Reac
     case "swipe":
       return <SwipeContainer {...shared}>{children}</SwipeContainer>;
     case "tabs":
-      // Tabs run each workspace in its own browser tab — there is no root
-      // page inside the container; children render only outside workspaces.
-      return <TabsContainer {...shared} />;
+      // Tabs run each workspace in its own browser tab. The launching tab
+      // renders children (the root page) plus a strip of open workspaces;
+      // a workspace tab renders only its workspace.
+      return <TabsContainer {...shared}>{children}</TabsContainer>;
     default:
       return <StackContainer {...shared}>{children}</StackContainer>;
   }

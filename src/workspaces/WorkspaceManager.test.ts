@@ -20,7 +20,10 @@ function makeDescriptor(id = "ws-1", template = "cam", params: WorkspaceParams =
 
 // ─── Mock adapter ─────────────────────────────────────────────────────────────
 
-function makeMockAdapter(initial: WorkspaceDescriptor[] = []): WorkspaceAdapter & {
+function makeMockAdapter(
+  initial: WorkspaceDescriptor[] = [],
+  type: WorkspaceAdapter["type"] = "stack",
+): WorkspaceAdapter & {
   _workspaces: WorkspaceDescriptor[];
   _listeners: ((e: WorkspaceEvent) => void)[];
   _emit(e: WorkspaceEvent): void;
@@ -30,7 +33,7 @@ function makeMockAdapter(initial: WorkspaceDescriptor[] = []): WorkspaceAdapter 
   const emit = (e: WorkspaceEvent) => { for (const l of _listeners) l(e); };
 
   const adapter = {
-    type: "stack" as const,
+    type,
     _workspaces,
     _listeners,
     _emit: emit,
@@ -116,8 +119,9 @@ function makeManager(opts: {
   persist?: { version: number };
   maxWorkspaces?: number;
   getCurrentPath?: () => string;
+  adapterType?: WorkspaceAdapter["type"];
 } = {}) {
-  const adapter = makeMockAdapter(opts.initialWorkspaces ?? []);
+  const adapter = makeMockAdapter(opts.initialWorkspaces ?? [], opts.adapterType ?? "stack");
   const guard = new WorkspaceGuard({ isAuthenticated: opts.isAuthenticated ?? (() => true) });
   const navigate = opts.navigate ?? vi.fn();
   const bus = makeMockBus();
@@ -988,5 +992,46 @@ describe("WorkspaceManager: persist.version runtime guard", () => {
   it("accepts version 0", () => {
     window.sessionStorage.clear();
     expect(() => makeManager({ persist: { version: 0 } })).not.toThrow();
+  });
+});
+
+// ─── tabs adapter: launching tab URL isolation ────────────────────────────────
+
+describe("WorkspaceManager: tabs adapter never touches this tab's URL", () => {
+  it("open() does not navigate", async () => {
+    const { manager, navigate } = makeManager({ adapterType: "tabs" });
+    await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("open() with an origin does not navigate either", async () => {
+    const { manager, navigate } = makeManager({ adapterType: "tabs" });
+    await manager.open({
+      template: "cam",
+      title: "Feed",
+      params: { cameraId: "c1" },
+      origin: "/dashboard",
+    });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("focus() does not navigate", async () => {
+    const d = makeDescriptor("ws-1");
+    const { manager, navigate } = makeManager({ adapterType: "tabs", initialWorkspaces: [d] });
+    await manager.focus("ws-1");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("close() does not navigate", async () => {
+    const d = makeDescriptor("ws-1");
+    const { manager, navigate } = makeManager({ adapterType: "tabs", initialWorkspaces: [d] });
+    await manager.close("ws-1");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("stack adapter still navigates on open() (control)", async () => {
+    const { manager, navigate } = makeManager({ adapterType: "stack" });
+    await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    expect(navigate).toHaveBeenCalled();
   });
 });
