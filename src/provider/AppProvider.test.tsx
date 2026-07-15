@@ -748,3 +748,48 @@ describe("AppProvider: router-only usage (no workspaces prop)", () => {
     expect(result.current.workspaces).toEqual([]);
   });
 });
+
+// ─── StrictMode ───────────────────────────────────────────────────────────────
+
+describe("AppProvider: React.StrictMode", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  // Regression: StrictMode's mount→unmount→remount runs the mount effect's
+  // cleanup (store.destroy()) on a store that is then reused (it lives in a
+  // ref). destroy() removed the popstate listener permanently, so browser
+  // back/forward stopped updating the view in StrictMode apps.
+  it("still reacts to popstate after the StrictMode double-mount", () => {
+    const { getByText } = render(
+      <React.StrictMode>
+        <AppProvider routes={routes}>
+          <RouterView />
+        </AppProvider>
+      </React.StrictMode>,
+    );
+    expect(getByText("Home")).toBeTruthy();
+
+    // Simulate browser back/forward landing on /about
+    window.history.replaceState(null, "", "/about");
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    expect(getByText("About")).toBeTruthy();
+  });
+
+  it("imperative navigate() still works after the StrictMode double-mount", () => {
+    const { getByText } = render(
+      <React.StrictMode>
+        <AppProvider routes={routes}>
+          <RouterView />
+        </AppProvider>
+      </React.StrictMode>,
+    );
+    act(() => {
+      imperativeNavigate("/about");
+    });
+    expect(getByText("About")).toBeTruthy();
+  });
+});
