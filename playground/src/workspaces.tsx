@@ -93,5 +93,6 @@ export const workspaces = defineWorkspaces({
   scratchpad: {
     component: Scratchpad,
     auth: { type: "public" },
+    persistent: false, // ephemeral — gone after an app restart
   },
 });

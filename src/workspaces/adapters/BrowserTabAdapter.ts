@@ -146,7 +146,7 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
   private syncCurrentFromUrl(): void {
     // When a workspace tab is opened, the URL already contains the id.
     // We can't reconstruct the full descriptor from the URL alone here;
-    // the AppProvider does that from sessionStorage or URL params.
+    // the AppProvider does that from localStorage or URL params.
   }
 
   private buildUrl(descriptor: WorkspaceDescriptor): string {

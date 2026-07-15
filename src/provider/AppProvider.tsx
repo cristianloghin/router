@@ -38,7 +38,7 @@ export interface AppConfig {
   adapter?: "auto" | "stack" | "swipe" | "tabs";
   maxWorkspaces?: number;
   /**
-   * Persist workspace state in sessionStorage. Presence enables persistence;
+   * Persist workspace state in localStorage. Presence enables persistence;
    * bump `version` when workspace param shapes change (old state is
    * discarded, no migration).
    */

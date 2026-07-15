@@ -42,11 +42,11 @@ export interface WorkspaceManagerConfig {
   getCurrentPath?: () => string;
   /** Called when credentials are submitted for a workspace (spec §6.3). */
   onCredentialAttempt?: (input: CredentialInput, workspaceId: string) => void;
-  /** Enable sessionStorage persistence (spec §5.3). */
+  /** Enable localStorage persistence (spec §5.3). */
   persist?: { version: number };
 }
 
-/** Shape stored in sessionStorage under `ws:v{version}`. */
+/** Shape stored in localStorage under `ws:v{version}`. */
 interface PersistedState {
   workspaces: WorkspaceDescriptor[];
   currentId: string | null;
@@ -55,10 +55,12 @@ interface PersistedState {
 
 const PERSIST_KEY_PATTERN = /^ws:v\d+$/;
 
-function getSessionStorage(): Storage | null {
+// localStorage (not sessionStorage) so workspaces survive full app restarts —
+// e.g. a PWA being closed and reopened. Templates opt out via persistent: false.
+function getLocalStorage(): Storage | null {
   // Access can throw in some privacy modes; persistence degrades to off.
   try {
-    return typeof window !== "undefined" ? window.sessionStorage : null;
+    return typeof window !== "undefined" ? window.localStorage : null;
   } catch {
     return null;
   }
@@ -82,7 +84,7 @@ export class WorkspaceManager {
   /** Origin path stored at open() time, keyed by workspace id. */
   private origins = new Map<string, string>();
 
-  /** sessionStorage key when persistence is enabled, null otherwise. */
+  /** localStorage key when persistence is enabled, null otherwise. */
   private persistKey: string | null;
 
   /** Listeners for manager-originated events (auth-failed, error). */
@@ -255,8 +257,13 @@ export class WorkspaceManager {
 
   // ─── persistence ─────────────────────────────────────────────────────────────
 
+  /** Whether a template's instances participate in persistence (default: yes). */
+  private isPersistent(templateKey: string): boolean {
+    return this.templates[templateKey]?.persistent !== false;
+  }
+
   private restoreFromStorage(): void {
-    const storage = getSessionStorage();
+    const storage = getLocalStorage();
     if (!storage || !this.persistKey) return;
 
     // Version mismatch: discard state stored under any other version key.
@@ -279,8 +286,11 @@ export class WorkspaceManager {
       return;
     }
 
-    // Drop workspaces whose template is no longer declared.
-    const descriptors = state.workspaces.filter((w) => this.templates[w.template]);
+    // Drop workspaces whose template is no longer declared, or is no longer
+    // persistent (the flag may have changed between app versions).
+    const descriptors = state.workspaces.filter(
+      (w) => this.templates[w.template] && this.isPersistent(w.template),
+    );
     if (descriptors.length === 0) return;
 
     for (const d of descriptors) {
@@ -296,13 +306,21 @@ export class WorkspaceManager {
   }
 
   private persistToStorage(): void {
-    const storage = getSessionStorage();
+    const storage = getLocalStorage();
     if (!storage || !this.persistKey) return;
 
+    // Only templates declared persistent are written; an ephemeral focused
+    // workspace must not leave a dangling currentId behind.
+    const persisted = this.adapter.getAll().filter((w) => this.isPersistent(w.template));
+    const persistedIds = new Set(persisted.map((w) => w.id));
+    const current = this.adapter.getCurrent();
+
     const state: PersistedState = {
-      workspaces: this.adapter.getAll(),
-      currentId: this.adapter.getCurrent()?.id ?? null,
-      origins: Object.fromEntries(this.origins),
+      workspaces: persisted,
+      currentId: current && persistedIds.has(current.id) ? current.id : null,
+      origins: Object.fromEntries(
+        [...this.origins].filter(([id]) => persistedIds.has(id)),
+      ),
     };
     try {
       storage.setItem(this.persistKey, JSON.stringify(state));
