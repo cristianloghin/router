@@ -450,6 +450,27 @@ describe("WorkspaceManager: updateParams", () => {
     expect(adapter.updateParams).toHaveBeenCalledWith("ws-1", { cameraId: "new" });
   });
 
+  it("merges partial params — unmentioned keys are preserved", () => {
+    const d = makeDescriptor("ws-1", "cam", { cameraId: "cam-002", quality: "1080" });
+    const { manager, adapter } = makeManager({ initialWorkspaces: [d] });
+    const updated = manager.updateParams("ws-1", { quality: "720" });
+    expect(adapter.updateParams).toHaveBeenCalledWith("ws-1", {
+      cameraId: "cam-002",
+      quality: "720",
+    });
+    expect(updated.params).toEqual({ cameraId: "cam-002", quality: "720" });
+  });
+
+  it("syncs the merged params (not just the patch) to the URL", () => {
+    // "secured" has no schema, so buildUrl serializes every param.
+    const d = makeDescriptor("ws-1", "secured", { cameraId: "cam-002", quality: "1080" });
+    const { manager, navigate } = makeManager({ initialWorkspaces: [d] });
+    manager.updateParams("ws-1", { quality: "720" });
+    const [url] = navigate.mock.calls[0] as [string];
+    expect(url).toContain("cameraId=cam-002");
+    expect(url).toContain("quality=720");
+  });
+
   it("calls navigate with replace:true", () => {
     const d = makeDescriptor("ws-1", "cam", { cameraId: "old" });
     const { manager, navigate } = makeManager({ initialWorkspaces: [d] });

@@ -502,7 +502,10 @@ export class WorkspaceManager {
       throw new WorkspaceError("WORKSPACE_NOT_FOUND", `Workspace "${id}" not found`, id);
     }
 
-    this.adapter.updateParams(id, params);
+    // Partial merge: keys absent from `params` keep their current values
+    // (the hook accepts Partial<...>). Adapters receive the full merged
+    // object — their updateParams is a plain replace primitive.
+    this.adapter.updateParams(id, { ...workspace.params, ...params });
 
     // Get the updated descriptor (adapter mutates in-place in StackAdapter)
     const updated = this.adapter.getAll().find((w) => w.id === id) ?? workspace;
