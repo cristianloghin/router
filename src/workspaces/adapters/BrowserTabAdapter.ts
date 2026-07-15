@@ -31,19 +31,28 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
   }
 
   async open(descriptor: WorkspaceDescriptor): Promise<void> {
-    const url = this.buildUrl(descriptor);
-    window.open(url, "_blank");
+    // Adoption, not spawn: when this tab already IS the workspace's own tab
+    // (direct URL access — the manager reconstructs the descriptor from the
+    // URL on boot), opening another tab would loop popups forever.
+    if (this.currentIdFromUrl() !== descriptor.id) {
+      const url = this.buildUrl(descriptor);
+      window.open(url, "_blank");
+    }
     this.workspaces.push(descriptor);
     this.emit({ type: "workspace:opened", workspace: descriptor });
     this.bc?.postMessage({ type: "workspace:opened", workspace: descriptor } satisfies BcMessage);
   }
 
   async close(id: string, _autoFocus = true): Promise<void> {
-    const current = this.getCurrent();
-    if (current?.id === id) {
+    const isOwnTab = this.currentIdFromUrl() === id;
+    this.workspaces = this.workspaces.filter((w) => w.id !== id);
+    this.emit({ type: "workspace:closed", workspaceId: id });
+    // The workspace's own tab receives this and closes itself — we cannot
+    // close other tabs programmatically.
+    this.bc?.postMessage({ type: "workspace:closed", workspaceId: id } satisfies BcMessage);
+    if (isOwnTab) {
       window.close();
     }
-    // Cannot programmatically close other tabs.
   }
 
   async focus(id: string): Promise<void> {
@@ -75,17 +84,20 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
    * URL format: /workspace/{template}/{id}?...
    */
   getCurrent(): WorkspaceDescriptor | null {
+    const id = this.currentIdFromUrl();
+    if (!id) return null;
+    return this.workspaces.find((w) => w.id === id) ?? null;
+  }
+
+  /** The workspace id in this tab's URL, or null when not a workspace URL. */
+  private currentIdFromUrl(): string | null {
     const pathname = window.location.pathname;
     const prefix = this.workspaceBasePath + "/";
     if (!pathname.startsWith(prefix)) return null;
 
-    const rest = pathname.slice(prefix.length);
-    const parts = rest.split("/");
-    // parts[0] = template, parts[1] = id
-    const id = parts[1];
-    if (!id) return null;
-
-    return this.workspaces.find((w) => w.id === id) ?? null;
+    // /{template}/{id}
+    const parts = pathname.slice(prefix.length).split("/");
+    return parts[1] || null;
   }
 
   restoreState(descriptors: WorkspaceDescriptor[]): void {
@@ -120,6 +132,10 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
         } else if (msg.type === "workspace:closed") {
           this.workspaces = this.workspaces.filter((w) => w.id !== msg.workspaceId);
           this.emit({ type: "workspace:closed", workspaceId: msg.workspaceId });
+          // Another tab closed this workspace — if it lives here, close this tab.
+          if (this.currentIdFromUrl() === msg.workspaceId) {
+            window.close();
+          }
         }
       };
     } catch {

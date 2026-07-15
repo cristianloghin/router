@@ -1,51 +1,89 @@
 name: Publish Package
 
+# package.json is the source of truth: bump the version in a PR, merge to
+# main, and CI publishes that version to npm, tags it, and creates the
+# GitHub release. Merges that don't change the version publish nothing.
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
+  pull_request:
 
 permissions:
-  id-token: write  # Required for OIDC
+  id-token: write # Required for OIDC
   contents: write
 
 jobs:
-  publish:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-      
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+  publish:
+    # Only on pushes to main, and only after tests pass.
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
-      
+
       - name: Update npm
         run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci
-      
+
+      - name: Check whether package.json version is already on npm
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "@mikrostack/router@$VERSION" version >/dev/null 2>&1; then
+            echo "Version $VERSION already published — nothing to do."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version $VERSION is new — publishing."
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build package
+        if: steps.version.outputs.new == 'true'
         run: npm run build
-      
-      - name: Extract version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-      
-      - name: Update package.json version
-        run: npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
-      
+
       - name: Publish to npm
+        if: steps.version.outputs.new == 'true'
         run: npm publish
-      
+
+      - name: Tag the release
+        if: steps.version.outputs.new == 'true'
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
       - name: Create GitHub Release
+        if: steps.version.outputs.new == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ steps.get_version.outputs.VERSION }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
           draft: false
           prerelease: false
           generate_release_notes: true

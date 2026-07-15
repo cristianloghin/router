@@ -11,7 +11,7 @@ import type { WorkspaceComponentProps } from "../../workspaces/types";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-// Stub BroadcastChannel (not needed for TabsContainer in tests)
+// Stub BroadcastChannel (cross-tab sync is not under test here)
 class MockBroadcastChannel {
   static instances: MockBroadcastChannel[] = [];
   name: string;
@@ -39,9 +39,11 @@ const workspaces = defineWorkspaces({
   },
 });
 
+// The real tabs adapter: open() window.opens (stubbed), the launching tab's
+// URL never changes.
 function Provider({ children }: { children: React.ReactNode }) {
   return (
-    <AppProvider routes={routes} workspaces={workspaces} config={{ adapter: "stack" }}>
+    <AppProvider routes={routes} workspaces={workspaces} config={{ adapter: "tabs" }}>
       {children}
     </AppProvider>
   );
@@ -63,21 +65,46 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
   MockBroadcastChannel.instances = [];
   vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+  vi.stubGlobal("open", vi.fn());
 });
 
-// ─── rendering ────────────────────────────────────────────────────────────────
+// ─── launching tab ────────────────────────────────────────────────────────────
 
-describe("TabsContainer: rendering", () => {
-  it("renders nothing when no workspaces are open", () => {
-    const { container } = render(
+describe("TabsContainer: launching tab", () => {
+  it("renders children (the root page) with no strip when nothing is open", () => {
+    render(
       <Provider>
-        <TabsContainer />
+        <TabsContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </TabsContainer>
       </Provider>,
     );
-    expect(container.querySelector("[data-testid^='ws-']")).toBeNull();
+    expect(screen.getByTestId("root-page")).toBeInTheDocument();
+    expect(document.querySelector("[data-role='tab-strip']")).toBeNull();
   });
 
-  it("renders current workspace after open()", async () => {
+  it("never renders workspace content inline — only the strip", async () => {
+    render(
+      <Provider>
+        <Opener />
+        <TabsContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </TabsContainer>
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-Feed"));
+    });
+
+    // Strip lists the workspace; content stays in its own browser tab.
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(document.querySelector("[data-role='tab-content']")).toBeNull();
+    expect(document.querySelector("[data-testid^='ws-']")).toBeNull();
+    // Root page remains visible.
+    expect(screen.getByTestId("root-page")).toBeInTheDocument();
+  });
+
+  it("open() spawns a browser tab and leaves this tab's URL untouched", async () => {
     render(
       <Provider>
         <Opener />
@@ -87,31 +114,12 @@ describe("TabsContainer: rendering", () => {
     await act(async () => {
       await userEvent.click(screen.getByTestId("open-Feed"));
     });
-    // The workspace component renders inside the tab-content area
-    expect(document.querySelector("[data-role='tab-content']")).not.toBeNull();
+
+    expect(window.open).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/");
   });
 
-  it("shows workspace list for navigation", async () => {
-    render(
-      <Provider>
-        <Opener title="A" />
-        <Opener title="B" />
-        <TabsContainer />
-      </Provider>,
-    );
-    await act(async () => {
-      await userEvent.click(screen.getByTestId("open-A"));
-      await userEvent.click(screen.getByTestId("open-B"));
-    });
-    // Both tabs appear in the tab list
-    expect(screen.getAllByRole("tab")).toHaveLength(2);
-  });
-});
-
-// ─── focus via tab click ──────────────────────────────────────────────────────
-
-describe("TabsContainer: tab navigation", () => {
-  it("clicking a different tab calls focus()", async () => {
+  it("clicking a strip tab calls focus() without navigating this tab", async () => {
     render(
       <Provider>
         <Opener title="A" />
@@ -125,37 +133,49 @@ describe("TabsContainer: tab navigation", () => {
     });
 
     const tabs = screen.getAllByRole("tab");
-    // Click on first tab (A) — should not throw
+    expect(tabs).toHaveLength(2);
     await act(async () => {
       await userEvent.click(tabs[0]!);
     });
+    expect(window.location.pathname).toBe("/");
   });
 });
 
-// ─── no close button ──────────────────────────────────────────────────────────
+// ─── workspace tab ────────────────────────────────────────────────────────────
 
-describe("TabsContainer: no root navigation button", () => {
-  it("does not render a close/root button (tabs manage their own back)", async () => {
+describe("TabsContainer: workspace tab (direct URL access)", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/workspace/cam/ws-tab-1?title=Feed");
+  });
+
+  it("renders only the workspace content — no strip, no children", () => {
     render(
       <Provider>
-        <Opener />
+        <TabsContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </TabsContainer>
+      </Provider>,
+    );
+
+    expect(screen.getByTestId("ws-ws-tab-1")).toBeInTheDocument();
+    expect(document.querySelector("[data-role='tab-strip']")).toBeNull();
+    expect(screen.queryByTestId("root-page")).toBeNull();
+  });
+
+  it("does not spawn another browser tab when adopting its own workspace", () => {
+    render(
+      <Provider>
         <TabsContainer />
       </Provider>,
     );
-    await act(async () => {
-      await userEvent.click(screen.getByTestId("open-Feed"));
-    });
-    expect(document.querySelector("[data-action='close']")).toBeNull();
+    // Direct access adopts the descriptor from the URL — window.open here
+    // would loop popups forever.
+    expect(window.open).not.toHaveBeenCalled();
   });
-});
 
-// ─── renderWorkspace ──────────────────────────────────────────────────────────
-
-describe("TabsContainer: renderWorkspace", () => {
-  it("wraps the current workspace's content in app-provided chrome", async () => {
+  it("wraps the workspace content in renderWorkspace chrome", () => {
     render(
       <Provider>
-        <Opener />
         <TabsContainer
           renderWorkspace={(workspace, content) => (
             <section data-testid="chrome" aria-label={workspace.title}>
@@ -165,9 +185,16 @@ describe("TabsContainer: renderWorkspace", () => {
         />
       </Provider>,
     );
-    await act(async () => {
-      await userEvent.click(screen.getByTestId("open-Feed"));
-    });
     expect(screen.getByTestId("chrome")).toBeInTheDocument();
+    expect(screen.getByTestId("chrome").getAttribute("aria-label")).toBe("Feed");
+  });
+
+  it("does not render a close/root button (tabs manage their own lifecycle)", () => {
+    render(
+      <Provider>
+        <TabsContainer />
+      </Provider>,
+    );
+    expect(document.querySelector("[data-action='close']")).toBeNull();
   });
 });

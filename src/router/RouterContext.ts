@@ -53,6 +53,7 @@ export class RouterStore {
   routeGuard?: (path: string) => boolean | string | Promise<boolean | string>;
 
   private previousPath: string | null = null;
+  private attached = false;
 
   constructor(
     initialMeta: Record<string, unknown> = {},
@@ -74,11 +75,24 @@ export class RouterStore {
     };
 
     this.handlePopState = this.handlePopState.bind(this);
+    this.attach();
+  }
+
+  /**
+   * (Re-)register the popstate listener. Idempotent. AppProvider calls this
+   * from its mount effect so the store survives StrictMode's simulated
+   * unmount (which runs the cleanup — destroy() — on a store instance that
+   * is then reused, since it lives in a ref).
+   */
+  attach(): void {
+    if (this.attached) return;
     window.addEventListener("popstate", this.handlePopState);
+    this.attached = true;
   }
 
   destroy(): void {
     window.removeEventListener("popstate", this.handlePopState);
+    this.attached = false;
     this.listeners.clear();
   }
 

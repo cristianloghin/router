@@ -252,6 +252,10 @@ export function AppProvider<
   }
 
   useEffect(() => {
+    // Re-attach the popstate listener: under StrictMode the mount→unmount→
+    // remount cycle runs the cleanup below on a store that is then reused
+    // (it lives in a ref), so destroy() must be reversible here.
+    storeRef.current?.attach();
     // Register the store for the imperative navigate() export (spec §4.12).
     setActiveStore(storeRef.current);
     return () => {
