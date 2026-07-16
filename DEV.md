@@ -53,8 +53,12 @@ Module ownership:
   the manager merges) and only syncs the URL when the workspace is focused.
 - **`open()` dedupes by default (focus-or-open)**: a live workspace with the
   same template and deep-equal params is `focus()`ed and `open()` resolves
-  with the **existing** descriptor — the rest of the input (`title`,
-  `origin`) is ignored on match, no merge, no update. Arrays compare
+  with the **existing** descriptor — workspace state in the input (`title`)
+  is ignored on match, no merge, no update. **`origin` is a navigation
+  directive, not workspace state, and IS honored on match** (fixed
+  2026-07-16): the current entry is replaced with it before focusing and
+  the stored origin moves with it, so a launcher route drops out of history
+  whether the workspace is created or refocused. Arrays compare
   order-sensitively (`{streamIds: [1,2]}` ≠ `{streamIds: [2,1]}` — tile
   order is meaningful). The match check runs **before** the instance-limit
   checks: a match creates nothing, so `maxInstances`/`maxWorkspaces` don't

@@ -327,17 +327,50 @@ describe("WorkspaceManager: open dedupes by default", () => {
     expect(adapter.updateTitle).not.toHaveBeenCalled();
   });
 
-  it("an explicit origin is ignored on match — no history replacement", async () => {
+  it("an explicit origin IS honored on match — the launching route drops out of history", async () => {
     const existing = makeDescriptor("ws-live", "cam", { cameraId: "c1" });
     const navigate = vi.fn();
     const { manager } = makeManager({ initialWorkspaces: [existing], navigate });
 
     await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" }, origin: "/elsewhere" });
 
-    const replaceCalls = navigate.mock.calls.filter(
-      ([, opts]) => (opts as { replace?: boolean } | undefined)?.replace === true,
+    // Same dance as a fresh open: replace the current entry with the origin…
+    expect(navigate).toHaveBeenCalledWith("/elsewhere", { replace: true });
+    // …then focus pushes the workspace URL on top of it.
+    const lastCall = navigate.mock.calls[navigate.mock.calls.length - 1]!;
+    expect(lastCall[0]).toContain("/workspace/cam/ws-live");
+    expect((lastCall[1] as { replace?: boolean } | undefined)?.replace).not.toBe(true);
+  });
+
+  it("the stored origin moves on match — close() returns to the new origin", async () => {
+    const existing = makeDescriptor("ws-live", "cam", { cameraId: "c1" });
+    const navigate = vi.fn();
+    const { manager } = makeManager({ initialWorkspaces: [existing], navigate });
+
+    await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" }, origin: "/after" });
+    navigate.mockClear();
+    await manager.close("ws-live");
+
+    expect(navigate).toHaveBeenCalledWith(
+      "/after",
+      expect.objectContaining({ navType: "workspace-close" }),
     );
-    expect(replaceCalls).toHaveLength(0);
+  });
+
+  it("without an origin, a match leaves history and the stored origin untouched", async () => {
+    const existing = makeDescriptor("ws-live", "cam", { cameraId: "c1" });
+    const navigate = vi.fn();
+    const { manager } = makeManager({
+      initialWorkspaces: [existing],
+      navigate,
+      getCurrentPath: () => "/dashboard",
+    });
+
+    await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+
+    // Only the focus navigation — no replace of the current entry.
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate.mock.calls[0]![0]).toContain("/workspace/cam/ws-live");
   });
 
   it("different params open a new workspace", async () => {

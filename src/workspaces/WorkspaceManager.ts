@@ -379,11 +379,11 @@ export class WorkspaceManager {
 
     // Focus-or-open: "open" means "ensure it exists and is focused" (browser
     // named-window / editor-tab semantics). A live workspace with the same
-    // template and deep-equal params is focused and returned as-is — the
-    // rest of the input (title, origin) is ignored on match. Params are
-    // identity; view-state must not creep into param schemas. Runs before
-    // the instance-limit checks: a match creates nothing, so limits don't
-    // apply to it.
+    // template and deep-equal params is focused and returned as-is —
+    // workspace state in the input (title) is ignored on match, no merge,
+    // no update. Params are identity; view-state must not creep into param
+    // schemas. Runs before the instance-limit checks: a match creates
+    // nothing, so limits don't apply to it.
     const match = this.adapter
       .getAll()
       .find(
@@ -392,6 +392,18 @@ export class WorkspaceManager {
           paramsEqual(w.params, input.params as WorkspaceParams),
       );
     if (match) {
+      // `origin` is a navigation directive, not workspace state, so it IS
+      // honored on match: the launching route (e.g. a creation form) must
+      // drop out of history whether the workspace is created or refocused.
+      // Same dance as a fresh open — replace the current entry with the
+      // origin, then focus() pushes the workspace URL on top — and the
+      // stored origin moves with it so close() returns there.
+      if (input.origin !== undefined) {
+        if (this.urlBound) {
+          this._navigate(input.origin, { replace: true });
+        }
+        this.origins.set(match.id, input.origin);
+      }
       return this.focus(match.id);
     }
 

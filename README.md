@@ -723,13 +723,13 @@ function OpenCameraButton() {
 }
 ```
 
-`open()` has focus-or-open semantics — the semantics of browser named windows and editor tabs. Calling it twice with the same template and params focuses the existing workspace and resolves with its descriptor instead of opening a duplicate, so callers never need to hand-roll find → focus-else-open.
+`open()` has focus-or-open semantics — the semantics of browser named windows and editor tabs. Calling it twice with the same template and params focuses the existing workspace and resolves with its descriptor instead of opening a duplicate, so callers never need to hand-roll find → focus-else-open. On a match, `title` is ignored (the existing workspace keeps its own), while `origin` is still honored — the launching route drops out of history either way.
 
 **Methods:**
 
 | Method | Signature | Description |
 |---|---|---|
-| `open` | `(input) => Promise<WorkspaceDescriptor>` | Focus-or-open: if a live workspace has the same template and deep-equal params (arrays order-sensitive), it is focused and returned — the rest of the input is ignored on match. Otherwise opens a new instance; rejects with `WorkspaceError` on auth failure or limit exceeded. `input.origin` (optional route path) installs a different background route first, replacing the current history entry — use it when the launching page (e.g. a creation form) should not be returned to by close, swipe-to-root, or the browser back button. |
+| `open` | `(input) => Promise<WorkspaceDescriptor>` | Focus-or-open: if a live workspace has the same template and deep-equal params (arrays order-sensitive), it is focused and returned — `title` is ignored on match, but `origin` is still honored (it's a navigation directive, not workspace state). Otherwise opens a new instance; rejects with `WorkspaceError` on auth failure or limit exceeded. `input.origin` (optional route path) installs a different background route first, replacing the current history entry — use it when the launching page (e.g. a creation form) should not be returned to by close, swipe-to-root, or the browser back button. |
 | `focus` | `(id: string) => Promise<WorkspaceDescriptor>` | Focus an open workspace. |
 | `close` | `(id: string, autoFocus?: boolean) => Promise<void>` | Close a workspace. Navigates back to the origin route. |
 | `updateParams` | `(id, params) => WorkspaceDescriptor` | Update workspace params (partial merge). Replaces the URL only when the workspace is the focused one. |
