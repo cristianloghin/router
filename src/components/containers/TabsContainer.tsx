@@ -1,5 +1,5 @@
 import React from "react";
-import { useWorkspaces } from "../../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions } from "../../workspaces/hooks";
 import { useLocation } from "../../router/hooks";
 import { GatedWorkspaceContent } from "../../workspaces/auth/AuthGate";
 import { useWorkspaceManagerContext, useWorkspaceTemplates } from "../../workspaces/context";
@@ -27,7 +27,8 @@ export interface TabsContainerProps {
  * - No close/root button: browser tabs manage their own lifecycle.
  */
 export function TabsContainer({ children, renderWorkspace }: TabsContainerProps): React.ReactElement {
-  const { workspaces, current, focus } = useWorkspaces();
+  const { workspaces, current } = useWorkspaces();
+  const { focus } = useWorkspaceActions();
   const { inWorkspace } = useLocation();
   const manager = useWorkspaceManagerContext();
   const templates = useWorkspaceTemplates();

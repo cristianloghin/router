@@ -13,7 +13,7 @@ import type { Bus } from "@mikrostack/chbus";
 import { AppProvider } from "../provider/AppProvider";
 import { defineRoutes } from "../router/RouteRegistry";
 import { defineWorkspaces } from "../workspaces/defineWorkspaces";
-import { useWorkspaces, useWorkspaceChannel } from "../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions, useWorkspaceChannel } from "../workspaces/hooks";
 import { StackContainer } from "../components/containers/StackContainer";
 import type { WorkspaceComponentProps } from "../workspaces/types";
 
@@ -56,7 +56,7 @@ describe("workspace-channel: lifecycle", () => {
 
   it("useWorkspaceChannel returns channel pair after open()", async () => {
     const { result } = renderHook(
-      () => ({ ws: useWorkspaces(), ch: useWorkspaceChannel(useWorkspaces().workspaces[0]?.id ?? "") }),
+      () => ({ ws: { ...useWorkspaces(), ...useWorkspaceActions() }, ch: useWorkspaceChannel(useWorkspaces().workspaces[0]?.id ?? "") }),
       { wrapper: makeWrapper() },
     );
 
@@ -74,7 +74,7 @@ describe("workspace-channel: lifecycle", () => {
 
     const { result } = renderHook(
       () => {
-        const ws = useWorkspaces();
+        const ws = { ...useWorkspaces(), ...useWorkspaceActions() };
         const ch = useWorkspaceChannel(ws.workspaces[0]?.id ?? "");
         return { ws, ch };
       },
@@ -103,7 +103,7 @@ describe("workspace-channel: lifecycle", () => {
 
     const { result } = renderHook(
       () => {
-        const ws = useWorkspaces();
+        const ws = { ...useWorkspaces(), ...useWorkspaceActions() };
         const ch = useWorkspaceChannel(ws.workspaces[0]?.id ?? "");
         return { ws, ch };
       },
@@ -162,7 +162,7 @@ describe("workspace-channel: workspace outbound → root inbound", () => {
     }
 
     function Opener() {
-      const { open } = useWorkspaces();
+      const { open } = useWorkspaceActions();
       return (
         <button
           data-testid="open"
@@ -229,7 +229,7 @@ describe("workspace-channel: root outbound → workspace inbound", () => {
     });
 
     function App() {
-      const { open } = useWorkspaces();
+      const { open } = useWorkspaceActions();
       return (
         <>
           <button
@@ -284,7 +284,7 @@ describe("workspace-channel: isolation between workspaces", () => {
     });
 
     function App() {
-      const { open } = useWorkspaces();
+      const { open } = useWorkspaceActions();
       return (
         <>
           <button data-testid="open" onClick={() => open({ template: "ws", title: "T", params: {} })}>
@@ -334,7 +334,7 @@ describe("workspace-channel: isolation between workspaces", () => {
     });
 
     function App() {
-      const { open } = useWorkspaces();
+      const { open } = useWorkspaceActions();
       return (
         <>
           <button data-testid="open" onClick={() => open({ template: "ws", title: "T", params: {} })}>
@@ -392,7 +392,7 @@ describe("workspace-channel: external bus", () => {
     });
 
     function Opener() {
-      const { open } = useWorkspaces();
+      const { open } = useWorkspaceActions();
       return (
         <button data-testid="open" onClick={() => open({ template: "cam", title: "T", params: {} })}>
           Open

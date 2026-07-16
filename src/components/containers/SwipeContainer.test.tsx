@@ -7,7 +7,7 @@ import { SwipeContainer } from "./SwipeContainer";
 import { useWorkspaceContainer } from "./containerContext";
 import { defineRoutes } from "../../router/RouteRegistry";
 import { defineWorkspaces } from "../../workspaces/defineWorkspaces";
-import { useWorkspaces } from "../../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions } from "../../workspaces/hooks";
 import { useNavigation } from "../../router/hooks";
 import { RouterView } from "../RouterView";
 import { useWorkspaceManagerContext } from "../../workspaces/context";
@@ -39,7 +39,7 @@ function Provider({ children }: { children: React.ReactNode }) {
 }
 
 function Opener({ title = "Feed" }: { title?: string }) {
-  const { open } = useWorkspaces();
+  const { open } = useWorkspaceActions();
   return (
     <button
       data-testid={`open-${title}`}
@@ -51,7 +51,8 @@ function Opener({ title = "Feed" }: { title?: string }) {
 }
 
 function Actions() {
-  const { workspaces: list, focus, close } = useWorkspaces();
+  const { workspaces: list } = useWorkspaces();
+  const { focus, close } = useWorkspaceActions();
   return (
     <>
       <button
@@ -549,7 +550,7 @@ describe("SwipeContainer: route replace followed by open in one handler", () => 
   it("ends on the workspace URL with the deck jumped to its page", async () => {
     function CreatePage() {
       const { navigate } = useNavigation();
-      const { open } = useWorkspaces();
+      const { open } = useWorkspaceActions();
       return (
         <button
           data-testid="confirm"

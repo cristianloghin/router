@@ -20,6 +20,7 @@ import {
   useNavigation,
   useLocation,
   useWorkspaces,
+  useWorkspaceActions,
   useWorkspace,
   useWorkspaceChannel,
 } from "../index";
@@ -351,7 +352,7 @@ describe("useWorkspaces: updateTitle", () => {
       ws: { component: (() => null) as React.ComponentType<WorkspaceComponentProps> },
     });
 
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -380,7 +381,7 @@ describe("WorkspaceManager: buildUrl without schema", () => {
       },
     });
 
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -621,7 +622,7 @@ describe("RouteBoundary: loading prop as function component", () => {
 
 describe("WorkspaceManager: updateTitle throws for unknown ID", () => {
   it("updateTitle throws WorkspaceError with WORKSPACE_NOT_FOUND code for unknown ID", () => {
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: makeWrapper() });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: makeWrapper() });
 
     expect(() => {
       result.current.updateTitle("nonexistent-id", "New Title");

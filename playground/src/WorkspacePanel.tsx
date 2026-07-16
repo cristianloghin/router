@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useWorkspaces, useWorkspaceChannel, WorkspaceError } from "@mikrostack/router";
+import { useWorkspaces, useWorkspaceActions, useWorkspaceChannel, WorkspaceError } from "@mikrostack/router";
 
 let cameraCounter = 0;
 
@@ -30,7 +30,8 @@ export function PingButton({ wsId }: { wsId: string }) {
 
 /** Root-side workspace controls: open/focus/close, plus channel messaging. */
 export function WorkspacePanel() {
-  const { workspaces, current, open, focus, close, adapterType } = useWorkspaces();
+  const { workspaces, current, adapterType } = useWorkspaces();
+  const { open, focus, close } = useWorkspaceActions();
   const [log, setLog] = useState<string[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
 

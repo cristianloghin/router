@@ -6,7 +6,7 @@ import { AppProvider } from "../../provider/AppProvider";
 import { Workspaces } from "./Workspaces";
 import { defineRoutes } from "../../router/RouteRegistry";
 import { defineWorkspaces } from "../../workspaces/defineWorkspaces";
-import { useWorkspaces } from "../../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions } from "../../workspaces/hooks";
 import type { WorkspaceComponentProps } from "../../workspaces/types";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ const workspaceTemplates = defineWorkspaces({
 });
 
 function Opener() {
-  const { open } = useWorkspaces();
+  const { open } = useWorkspaceActions();
   return (
     <button data-testid="open" onClick={() => open({ template: "cam", title: "Feed", params: {} })}>
       Open

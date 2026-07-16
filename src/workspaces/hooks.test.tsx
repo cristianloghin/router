@@ -1,7 +1,8 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useWorkspaces, useWorkspace, useWorkspaceChannel } from "./hooks";
+import { useWorkspaces, useWorkspaceActions, useWorkspace, useWorkspaceChannel } from "./hooks";
+import { shallowEqual } from "../utils/shallowEqual";
 import { WorkspaceManagerContext } from "./context";
 import { WorkspaceManager } from "./WorkspaceManager";
 import { WorkspaceGuard } from "./auth/WorkspaceGuard";
@@ -71,19 +72,19 @@ function wrapper(manager: WorkspaceManager) {
 describe("useWorkspaces: initial state", () => {
   it("workspaces is empty initially", () => {
     const { manager } = makeManager();
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     expect(result.current.workspaces).toHaveLength(0);
   });
 
   it("current is null initially", () => {
     const { manager } = makeManager();
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     expect(result.current.current).toBeNull();
   });
 
   it("adapterType matches the injected adapter", () => {
     const { manager } = makeManager();
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     expect(result.current.adapterType).toBe("stack");
   });
 });
@@ -91,7 +92,7 @@ describe("useWorkspaces: initial state", () => {
 describe("useWorkspaces: open triggers re-render", () => {
   it("workspaces has length 1 after open()", async () => {
     const { manager } = makeManager();
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     await act(async () => {
       await result.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
     });
@@ -100,7 +101,7 @@ describe("useWorkspaces: open triggers re-render", () => {
 
   it("current is set to opened workspace", async () => {
     const { manager } = makeManager();
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     await act(async () => {
       await result.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
     });
@@ -111,7 +112,7 @@ describe("useWorkspaces: open triggers re-render", () => {
 describe("useWorkspaces: close triggers re-render", () => {
   it("workspaces is empty after close()", async () => {
     const { manager } = makeManager();
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof result.current.open>> = undefined!;
     await act(async () => {
       d = await result.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
@@ -126,7 +127,7 @@ describe("useWorkspaces: close triggers re-render", () => {
 describe("useWorkspaces: focus triggers re-render", () => {
   it("current updates after focus()", async () => {
     const { manager } = makeManager();
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d1: Awaited<ReturnType<typeof result.current.open>> = undefined!;
     let d2: Awaited<ReturnType<typeof result.current.open>> = undefined!;
     await act(async () => {
@@ -143,7 +144,7 @@ describe("useWorkspaces: focus triggers re-render", () => {
 describe("useWorkspaces: updateParams triggers re-render", () => {
   it("workspace params update after updateParams()", async () => {
     const { manager } = makeManager();
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof result.current.open>> = undefined!;
     await act(async () => {
       d = await result.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
@@ -155,15 +156,175 @@ describe("useWorkspaces: updateParams triggers re-render", () => {
   });
 });
 
-describe("useWorkspaces: returned functions", () => {
-  it("exposes open, focus, close, updateParams, updateTitle", () => {
+describe("useWorkspaces: snapshot shape", () => {
+  it("returns only state — actions live on useWorkspaceActions", () => {
     const { manager } = makeManager();
     const { result } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    expect(Object.keys(result.current).sort()).toEqual(["adapterType", "current", "workspaces"]);
+  });
+});
+
+// ─── useWorkspaces: selector ──────────────────────────────────────────────────
+
+describe("useWorkspaces: selector", () => {
+  it("returns the selected slice", async () => {
+    const { manager } = makeManager();
+    const { result } = renderHook(() => useWorkspaces((s) => s.workspaces.length), {
+      wrapper: wrapper(manager),
+    });
+    expect(result.current).toBe(0);
+    await act(async () => {
+      await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    });
+    expect(result.current).toBe(1);
+  });
+
+  it("skips re-renders while the selected value is unchanged", async () => {
+    const { manager } = makeManager();
+    let d: Awaited<ReturnType<typeof manager.open>> = undefined!;
+    await act(async () => {
+      d = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    });
+
+    let renderCount = 0;
+    renderHook(
+      () => { renderCount++; return useWorkspaces((s) => s.workspaces.length); },
+      { wrapper: wrapper(manager) },
+    );
+    const countBefore = renderCount;
+
+    // updateTitle fires workspace:updated, but the length is unchanged.
+    act(() => {
+      manager.updateTitle(d.id, "Renamed");
+    });
+
+    expect(renderCount).toBe(countBefore);
+  });
+
+  it("re-renders when the selected value changes", async () => {
+    const { manager } = makeManager();
+    let renderCount = 0;
+    const { result } = renderHook(
+      () => { renderCount++; return useWorkspaces((s) => s.workspaces.length); },
+      { wrapper: wrapper(manager) },
+    );
+    const countBefore = renderCount;
+
+    await act(async () => {
+      await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    });
+
+    expect(renderCount).toBeGreaterThan(countBefore);
+    expect(result.current).toBe(1);
+  });
+
+  it("a fresh-collection selector under the default Object.is never skips (the footgun)", async () => {
+    const { manager } = makeManager();
+    let d: Awaited<ReturnType<typeof manager.open>> = undefined!;
+    await act(async () => {
+      d = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    });
+
+    let renderCount = 0;
+    renderHook(
+      () => { renderCount++; return useWorkspaces((s) => s.workspaces.map((w) => w.id)); },
+      { wrapper: wrapper(manager) },
+    );
+    const countBefore = renderCount;
+
+    act(() => {
+      manager.updateTitle(d.id, "Renamed");
+    });
+
+    // Same ids, but a fresh array each call — Object.is sees a change.
+    expect(renderCount).toBeGreaterThan(countBefore);
+  });
+
+  it("shallowEqual as isEqual skips re-renders for derived collections", async () => {
+    const { manager } = makeManager();
+    let d: Awaited<ReturnType<typeof manager.open>> = undefined!;
+    await act(async () => {
+      d = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    });
+
+    let renderCount = 0;
+    renderHook(
+      () => {
+        renderCount++;
+        return useWorkspaces((s) => s.workspaces.map((w) => w.id), shallowEqual);
+      },
+      { wrapper: wrapper(manager) },
+    );
+    const countBefore = renderCount;
+
+    act(() => {
+      manager.updateTitle(d.id, "Renamed");
+    });
+
+    expect(renderCount).toBe(countBefore);
+  });
+});
+
+// ─── useWorkspaceActions ──────────────────────────────────────────────────────
+
+describe("useWorkspaceActions", () => {
+  it("exposes actions and non-reactive readers", () => {
+    const { manager } = makeManager();
+    const { result } = renderHook(() => useWorkspaceActions(), { wrapper: wrapper(manager) });
     expect(typeof result.current.open).toBe("function");
     expect(typeof result.current.focus).toBe("function");
     expect(typeof result.current.close).toBe("function");
     expect(typeof result.current.updateParams).toBe("function");
     expect(typeof result.current.updateTitle).toBe("function");
+    expect(typeof result.current.getAll).toBe("function");
+    expect(typeof result.current.getCurrent).toBe("function");
+  });
+
+  it("is referentially stable across re-renders", () => {
+    const { manager } = makeManager();
+    const { result, rerender } = renderHook(() => useWorkspaceActions(), {
+      wrapper: wrapper(manager),
+    });
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
+  });
+
+  it("does not re-render on workspace events", async () => {
+    const { manager } = makeManager();
+    let renderCount = 0;
+    const { result } = renderHook(
+      () => { renderCount++; return useWorkspaceActions(); },
+      { wrapper: wrapper(manager) },
+    );
+    const countBefore = renderCount;
+
+    let d: Awaited<ReturnType<typeof result.current.open>> = undefined!;
+    await act(async () => {
+      d = await result.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    });
+    act(() => {
+      result.current.updateTitle(d.id, "Renamed");
+    });
+    await act(async () => {
+      await result.current.close(d.id);
+    });
+
+    expect(renderCount).toBe(countBefore);
+  });
+
+  it("getAll()/getCurrent() read live state at handler time", async () => {
+    const { manager } = makeManager();
+    const { result } = renderHook(() => useWorkspaceActions(), { wrapper: wrapper(manager) });
+    expect(result.current.getAll()).toHaveLength(0);
+    expect(result.current.getCurrent()).toBeNull();
+
+    await act(async () => {
+      await result.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    });
+
+    expect(result.current.getAll()).toHaveLength(1);
+    expect(result.current.getCurrent()?.template).toBe("cam");
   });
 });
 
@@ -180,7 +341,7 @@ describe("useWorkspace: unknown id", () => {
 describe("useWorkspace: known id", () => {
   it("returns non-null after workspace is opened with that id", async () => {
     const { manager } = makeManager();
-    const { result: wsResult } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result: wsResult } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
     await act(async () => {
       d = await wsResult.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
@@ -194,7 +355,7 @@ describe("useWorkspace: known id", () => {
 
   it("does not expose a channel (use props or useWorkspaceChannel instead)", async () => {
     const { manager } = makeManager();
-    const { result: wsResult } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result: wsResult } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
     await act(async () => {
       d = await wsResult.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
@@ -208,7 +369,7 @@ describe("useWorkspace: known id", () => {
 describe("useWorkspace: re-render selectivity", () => {
   it("re-renders when workspace:updated fires for this id", async () => {
     const { manager } = makeManager();
-    const { result: wsResult } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result: wsResult } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
     await act(async () => {
       d = await wsResult.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
@@ -231,7 +392,7 @@ describe("useWorkspace: re-render selectivity", () => {
 
   it("does NOT re-render when a different workspace is updated", async () => {
     const { manager } = makeManager();
-    const { result: wsResult } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result: wsResult } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d1: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
     let d2: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
     await act(async () => {
@@ -268,7 +429,7 @@ describe("useWorkspaceChannel: unknown id", () => {
 describe("useWorkspaceChannel: open workspace", () => {
   it("returns { inbound, outbound } from root perspective after open", async () => {
     const { manager } = makeManager();
-    const { result: wsResult } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result: wsResult } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
     await act(async () => {
       d = await wsResult.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
@@ -282,7 +443,7 @@ describe("useWorkspaceChannel: open workspace", () => {
 
   it("root.outbound is workspace.inbound (same physical channel)", async () => {
     const { manager } = makeManager();
-    const { result: wsResult } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result: wsResult } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
     await act(async () => {
       d = await wsResult.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
@@ -297,7 +458,7 @@ describe("useWorkspaceChannel: open workspace", () => {
 describe("useWorkspaceChannel: after close", () => {
   it("becomes null after the workspace is closed", async () => {
     const { manager } = makeManager();
-    const { result: wsResult } = renderHook(() => useWorkspaces(), { wrapper: wrapper(manager) });
+    const { result: wsResult } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: wrapper(manager) });
     let d: Awaited<ReturnType<typeof wsResult.current.open>> = undefined!;
     await act(async () => {
       d = await wsResult.current.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });

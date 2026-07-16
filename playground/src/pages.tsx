@@ -10,7 +10,7 @@ import {
   useSearchParams,
   useMeta,
   useLocation,
-  useWorkspaces,
+  useWorkspaceActions,
   navigate as imperativeNavigate,
   type RouteComponentProps,
 } from "@mikrostack/router";
@@ -237,7 +237,7 @@ export const LazyPage = React.lazy(async () => {
 // come back to after the workspace it launches is closed.
 
 export function OriginLauncher() {
-  const { open } = useWorkspaces();
+  const { open } = useWorkspaceActions();
   const [error, setError] = useState<string | null>(null);
 
   const launch = (origin?: string) => {

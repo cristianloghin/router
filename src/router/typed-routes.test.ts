@@ -80,3 +80,45 @@ describe("schema-first workspace params", () => {
     expect(true).toBe(true);
   });
 });
+
+// ─── WorkspaceUnion (discriminated descriptor union) ──────────────────────────
+
+import type {
+  WorkspaceDescriptor,
+  WorkspaceUnion,
+  TypedWorkspaceDescriptor,
+} from "../workspaces/types";
+
+type UnionTemplates = {
+  cam: { schema: { cameraId: "string" } };
+  wall: { schema: { streamIds: "string[]" } };
+};
+
+describe("WorkspaceUnion", () => {
+  it("degrades to plain WorkspaceDescriptor for the loose map", () => {
+    expectTypeOf<WorkspaceUnion<WorkspaceTemplateMap>>().toEqualTypeOf<WorkspaceDescriptor>();
+    expect(true).toBe(true);
+  });
+
+  it("is a union discriminated by template with per-template params", () => {
+    expectTypeOf<WorkspaceUnion<UnionTemplates>>().toEqualTypeOf<
+      | TypedWorkspaceDescriptor<"cam", { cameraId: string }>
+      | TypedWorkspaceDescriptor<"wall", { streamIds: string[] }>
+    >();
+    expect(true).toBe(true);
+  });
+
+  it("comparing template narrows params — including through .filter()", () => {
+    const workspaces: WorkspaceUnion<UnionTemplates>[] = [];
+
+    const w = workspaces[0];
+    if (w && w.template === "wall") {
+      expectTypeOf(w.params).toEqualTypeOf<{ streamIds: string[] }>();
+    }
+
+    // TS ≥ 5.5 inferred predicates: the filter narrows without casts.
+    const walls = workspaces.filter((x) => x.template === "wall");
+    expectTypeOf(walls).toEqualTypeOf<TypedWorkspaceDescriptor<"wall", { streamIds: string[] }>[]>();
+    expect(true).toBe(true);
+  });
+});

@@ -6,7 +6,7 @@ import { AppProvider } from "../../provider/AppProvider";
 import { TabsContainer } from "./TabsContainer";
 import { defineRoutes } from "../../router/RouteRegistry";
 import { defineWorkspaces } from "../../workspaces/defineWorkspaces";
-import { useWorkspaces } from "../../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions } from "../../workspaces/hooks";
 import type { WorkspaceComponentProps } from "../../workspaces/types";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ function Provider({ children }: { children: React.ReactNode }) {
 }
 
 function Opener({ title = "Feed" }: { title?: string }) {
-  const { open } = useWorkspaces();
+  const { open } = useWorkspaceActions();
   return (
     <button
       data-testid={`open-${title}`}

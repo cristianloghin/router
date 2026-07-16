@@ -19,7 +19,8 @@ export interface WorkspacesProps {
  * type and passes `children`/`renderWorkspace` through.
  */
 export function Workspaces({ children, renderWorkspace }: WorkspacesProps): React.ReactElement {
-  const { adapterType } = useWorkspaces();
+  // adapterType is constant for the app's lifetime, so this never re-renders.
+  const adapterType = useWorkspaces((s) => s.adapterType);
 
   const shared = renderWorkspace !== undefined ? { renderWorkspace } : {};
 

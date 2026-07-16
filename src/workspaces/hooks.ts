@@ -1,9 +1,12 @@
-import { useCallback, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useWorkspaceManagerContext } from "./context";
 import type {
+  AdapterType,
   WorkspaceDescriptor,
   WorkspaceParams,
   WorkspaceEvent,
+  WorkspaceUnion,
+  WorkspaceTemplateMap,
   OpenWorkspaceInput,
   InferParams,
   RegisteredWorkspaces,
@@ -12,24 +15,51 @@ import type { Channel, ChannelContract } from "@mikrostack/chbus";
 
 // ─── useWorkspaces ────────────────────────────────────────────────────────────
 
-interface WorkspacesSnapshot {
-  workspaces: WorkspaceDescriptor[];
-  current: WorkspaceDescriptor | null;
+export interface WorkspacesSnapshot<
+  TWorkspaces extends Record<string, unknown> = RegisteredWorkspaces,
+> {
+  workspaces: WorkspaceUnion<TWorkspaces>[];
+  current: WorkspaceUnion<TWorkspaces> | null;
+  adapterType: AdapterType;
 }
 
 /**
+ * Subscribing workspace state: `{ workspaces, current, adapterType }`,
+ * re-rendered on every workspace event. Actions live on the non-subscribing
+ * useWorkspaceActions().
+ *
+ * With a selector, only the selected slice is returned and re-renders are
+ * skipped while `isEqual` (default Object.is) considers it unchanged.
+ * **Footgun:** a selector that returns a fresh array/object each call (e.g.
+ * `s => s.workspaces.filter(...)`) never compares equal under Object.is —
+ * pass the exported `shallowEqual` as `isEqual` when deriving collections.
+ *
  * Template keys and param shapes are compile-checked when the app's
- * workspaces are Registered (see Register); an explicit generic
- * (`useWorkspaces<typeof workspaces>()`) also works.
+ * workspaces are Registered (see Register).
  */
 export function useWorkspaces<
   TWorkspaces extends Record<string, unknown> = RegisteredWorkspaces,
->() {
+>(): WorkspacesSnapshot<TWorkspaces>;
+export function useWorkspaces<
+  TWorkspaces extends Record<string, unknown> = RegisteredWorkspaces,
+  TSelected = unknown,
+>(
+  selector: (snapshot: WorkspacesSnapshot<TWorkspaces>) => TSelected,
+  isEqual?: (a: TSelected, b: TSelected) => boolean,
+): TSelected;
+export function useWorkspaces(
+  // The implementation is typed against the loose map — the app may augment
+  // Register, and this file must compile identically either way (the
+  // playground compiles src/ with an augmentation in scope).
+  selector?: (snapshot: WorkspacesSnapshot<WorkspaceTemplateMap>) => unknown,
+  isEqual?: (a: unknown, b: unknown) => boolean,
+): unknown {
   const manager = useWorkspaceManagerContext();
 
-  const snapshotRef = useRef<WorkspacesSnapshot>({
+  const snapshotRef = useRef<WorkspacesSnapshot<WorkspaceTemplateMap>>({
     workspaces: manager.getAll(),
     current: manager.getCurrent(),
+    adapterType: manager.adapterType,
   });
 
   const subscribe = useCallback(
@@ -38,6 +68,7 @@ export function useWorkspaces<
         snapshotRef.current = {
           workspaces: manager.getAll(),
           current: manager.getCurrent(),
+          adapterType: manager.adapterType,
         };
         notify();
       });
@@ -47,40 +78,116 @@ export function useWorkspaces<
 
   const getSnapshot = useCallback(() => snapshotRef.current, []);
 
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  // Last selection that actually rendered. Survives selector identity changes
+  // (inline selectors recreate getSelection every render), so the equality
+  // bailout still has a baseline to compare against.
+  const lastRenderedRef = useRef<{ hasValue: boolean; value: unknown }>({
+    hasValue: false,
+    value: null,
+  });
 
-  return {
-    workspaces: snapshot.workspaces,
-    current: snapshot.current,
-    adapterType: manager.adapterType,
+  // Memoizes the selection per snapshot identity: useSyncExternalStore calls
+  // this repeatedly within a render and re-renders whenever it returns a new
+  // reference, so an uncached selector returning fresh objects would loop.
+  const getSelection = useMemo(() => {
+    let hasMemo = false;
+    let memoizedSnapshot: WorkspacesSnapshot<WorkspaceTemplateMap>;
+    let memoizedSelection: unknown;
+    const lastRendered = lastRenderedRef.current;
+    const equal = isEqual ?? Object.is;
 
-    open<TKey extends keyof TWorkspaces>(
-      input: OpenWorkspaceInput<TKey, InferParams<TWorkspaces[TKey]>>,
-    ): Promise<WorkspaceDescriptor<InferParams<TWorkspaces[TKey]>>> {
-      return manager.open(input as OpenWorkspaceInput) as Promise<
-        WorkspaceDescriptor<InferParams<TWorkspaces[TKey]>>
-      >;
-    },
+    return (): unknown => {
+      const nextSnapshot = getSnapshot();
+      if (!selector) return nextSnapshot;
 
-    focus(id: string): Promise<WorkspaceDescriptor> {
-      return manager.focus(id);
-    },
+      if (!hasMemo) {
+        hasMemo = true;
+        memoizedSnapshot = nextSnapshot;
+        let nextSelection = selector(nextSnapshot);
+        if (lastRendered.hasValue && equal(lastRendered.value, nextSelection)) {
+          nextSelection = lastRendered.value;
+        }
+        memoizedSelection = nextSelection;
+        return nextSelection;
+      }
 
-    close(id: string, autoFocus?: boolean): Promise<void> {
-      return manager.close(id, autoFocus);
-    },
+      if (memoizedSnapshot === nextSnapshot) return memoizedSelection;
 
-    updateParams<TKey extends keyof TWorkspaces>(
-      id: string,
-      params: Partial<InferParams<TWorkspaces[TKey]>>,
-    ): WorkspaceDescriptor {
-      return manager.updateParams(id, params as WorkspaceParams);
-    },
+      const nextSelection = selector(nextSnapshot);
+      memoizedSnapshot = nextSnapshot;
+      if (!equal(memoizedSelection, nextSelection)) {
+        memoizedSelection = nextSelection;
+      }
+      return memoizedSelection;
+    };
+  }, [getSnapshot, selector, isEqual]);
 
-    updateTitle(id: string, title: string): WorkspaceDescriptor {
-      return manager.updateTitle(id, title);
-    },
-  };
+  const selection = useSyncExternalStore(subscribe, getSelection, getSelection);
+
+  useEffect(() => {
+    lastRenderedRef.current.hasValue = true;
+    lastRenderedRef.current.value = selection;
+  });
+
+  return selection;
+}
+
+// ─── useWorkspaceActions ──────────────────────────────────────────────────────
+
+/**
+ * Non-subscribing workspace actions — never causes a re-render, and the
+ * returned object is referentially stable. getAll()/getCurrent() are
+ * non-reactive readers for handler-time reads; for state that should drive
+ * rendering, use useWorkspaces().
+ *
+ * Template keys and param shapes are compile-checked when the app's
+ * workspaces are Registered (see Register); an explicit generic
+ * (`useWorkspaceActions<typeof workspaces>()`) also works.
+ */
+export function useWorkspaceActions<
+  TWorkspaces extends Record<string, unknown> = RegisteredWorkspaces,
+>() {
+  const manager = useWorkspaceManagerContext();
+
+  return useMemo(
+    () => ({
+      open<TKey extends keyof TWorkspaces>(
+        input: OpenWorkspaceInput<TKey, InferParams<TWorkspaces[TKey]>>,
+      ): Promise<WorkspaceDescriptor<InferParams<TWorkspaces[TKey]>>> {
+        return manager.open(input as OpenWorkspaceInput) as Promise<
+          WorkspaceDescriptor<InferParams<TWorkspaces[TKey]>>
+        >;
+      },
+
+      focus(id: string): Promise<WorkspaceDescriptor> {
+        return manager.focus(id);
+      },
+
+      close(id: string, autoFocus?: boolean): Promise<void> {
+        return manager.close(id, autoFocus);
+      },
+
+      updateParams<TKey extends keyof TWorkspaces>(
+        id: string,
+        params: Partial<InferParams<TWorkspaces[TKey]>>,
+      ): WorkspaceDescriptor {
+        return manager.updateParams(id, params as WorkspaceParams);
+      },
+
+      updateTitle(id: string, title: string): WorkspaceDescriptor {
+        return manager.updateTitle(id, title);
+      },
+
+      getAll(): WorkspaceUnion<TWorkspaces>[] {
+        return manager.getAll() as WorkspaceUnion<TWorkspaces>[];
+      },
+
+      getCurrent(): WorkspaceUnion<TWorkspaces> | null {
+        return manager.getCurrent() as WorkspaceUnion<TWorkspaces> | null;
+      },
+    }),
+    [manager],
+  );
 }
 
 // ─── useWorkspace ─────────────────────────────────────────────────────────────
