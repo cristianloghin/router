@@ -8,7 +8,7 @@ import { navigate as imperativeNavigate } from "../router/RouterContext";
 import { defineRoutes } from "../router/RouteRegistry";
 import { defineWorkspaces } from "../workspaces/defineWorkspaces";
 import { useNavigation, useLocation } from "../router/hooks";
-import { useWorkspaces } from "../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions } from "../workspaces/hooks";
 import { createBus } from "@mikrostack/chbus";
 
 // ─── Minimal test fixtures ────────────────────────────────────────────────────
@@ -56,14 +56,14 @@ describe("AppProvider: hook accessibility", () => {
   });
 
   it("useWorkspaces() works below AppProvider", () => {
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: makeWrapper() });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: makeWrapper() });
     expect(Array.isArray(result.current.workspaces)).toBe(true);
     expect(result.current.adapterType).toBe("stack");
   });
 
   it("useNavigation() and useWorkspaces() coexist below AppProvider", () => {
     const { result } = renderHook(
-      () => ({ nav: useNavigation(), ws: useWorkspaces() }),
+      () => ({ nav: useNavigation(), ws: { ...useWorkspaces(), ...useWorkspaceActions() } }),
       { wrapper: makeWrapper() },
     );
     expect(result.current.nav.navigate).toBeDefined();
@@ -136,7 +136,7 @@ describe("AppProvider: bus prop", () => {
     const externalBus = createBus();
     const namespaceSpy = vi.spyOn(externalBus, "namespace");
 
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ bus: externalBus, config: { adapter: "stack" } }),
     });
     await act(async () => {
@@ -148,7 +148,7 @@ describe("AppProvider: bus prop", () => {
 
   it("creates an internal bus when none is provided", async () => {
     // No error = internal bus was created and used
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ config: { adapter: "stack" } }),
     });
     await expect(
@@ -164,7 +164,7 @@ describe("AppProvider: bus prop", () => {
 describe("AppProvider: auth.isAuthenticated", () => {
   it("is called when opening an authenticated workspace", async () => {
     const isAuthenticated = vi.fn(() => true);
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ config: { adapter: "stack", auth: { isAuthenticated } } }),
     });
     await act(async () => {
@@ -175,7 +175,7 @@ describe("AppProvider: auth.isAuthenticated", () => {
 
   it("open rejects when isAuthenticated returns false for authenticated workspace", async () => {
     const isAuthenticated = vi.fn(() => false);
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ config: { adapter: "stack", auth: { isAuthenticated } } }),
     });
     await expect(
@@ -191,7 +191,7 @@ describe("AppProvider: auth.isAuthenticated", () => {
 describe("AppProvider: workspace URLs transparent to router", () => {
   it("navigate to workspace URL does not change router path", () => {
     const { result } = renderHook(
-      () => ({ nav: useNavigation(), loc: useLocation(), ws: useWorkspaces() }),
+      () => ({ nav: useNavigation(), loc: useLocation(), ws: { ...useWorkspaces(), ...useWorkspaceActions() } }),
       { wrapper: makeWrapper() },
     );
     act(() => {
@@ -216,7 +216,7 @@ describe("AppProvider: workspace persistence", () => {
       persist: { version: 1 },
     };
 
-    const first = renderHook(() => useWorkspaces(), {
+    const first = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ config: persistConfig }),
     });
     let openedId = "";
@@ -233,7 +233,7 @@ describe("AppProvider: workspace persistence", () => {
     // separate flow tested in workspace-auth.test.tsx.
     window.history.replaceState(null, "", "/");
 
-    const second = renderHook(() => useWorkspaces(), {
+    const second = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ config: persistConfig }),
     });
     expect(second.result.current.workspaces.map((w) => w.id)).toEqual([openedId]);
@@ -241,7 +241,7 @@ describe("AppProvider: workspace persistence", () => {
   });
 
   it("starts fresh when the persisted version does not match", async () => {
-    const first = renderHook(() => useWorkspaces(), {
+    const first = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({
         config: { adapter: "stack", persist: { version: 1 } },
       }),
@@ -256,7 +256,7 @@ describe("AppProvider: workspace persistence", () => {
     first.unmount();
     window.history.replaceState(null, "", "/");
 
-    const second = renderHook(() => useWorkspaces(), {
+    const second = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({
         config: { adapter: "stack", persist: { version: 2 } },
       }),
@@ -352,7 +352,7 @@ describe("AppProvider: workspace NavigationEvents", () => {
 
   it('open() fires onNavigate with type "workspace-open" and to = origin route', async () => {
     const onNavigate = vi.fn();
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ config: { adapter: "stack", onNavigate } }),
     });
     await act(async () => {
@@ -365,7 +365,7 @@ describe("AppProvider: workspace NavigationEvents", () => {
 
   it('open() fires onBeforeNavigate with type "workspace-open"', async () => {
     const onBeforeNavigate = vi.fn();
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ config: { adapter: "stack", onBeforeNavigate } }),
     });
     await act(async () => {
@@ -378,7 +378,7 @@ describe("AppProvider: workspace NavigationEvents", () => {
 
   it('close() fires onNavigate with type "workspace-close" and to = origin route', async () => {
     const onNavigate = vi.fn();
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper({ config: { adapter: "stack", onNavigate } }),
     });
     let id = "";
@@ -401,7 +401,7 @@ describe("AppProvider: workspace close history semantics", () => {
   });
 
   it("close() restores the origin route in the address bar", async () => {
-    const { result } = renderHook(() => ({ nav: useNavigation(), ws: useWorkspaces() }), {
+    const { result } = renderHook(() => ({ nav: useNavigation(), ws: { ...useWorkspaces(), ...useWorkspaceActions() } }), {
       wrapper: makeWrapper(),
     });
     act(() => { result.current.nav.navigate("/about"); });
@@ -417,7 +417,7 @@ describe("AppProvider: workspace close history semantics", () => {
 
   it("close() does not modify the session stack — canGoBack reflects pre-open state", async () => {
     const { result } = renderHook(
-      () => ({ nav: useNavigation(), loc: useLocation(), ws: useWorkspaces() }),
+      () => ({ nav: useNavigation(), loc: useLocation(), ws: { ...useWorkspaces(), ...useWorkspaceActions() } }),
       { wrapper: makeWrapper() },
     );
     act(() => { result.current.nav.navigate("/about"); });
@@ -435,7 +435,7 @@ describe("AppProvider: workspace close history semantics", () => {
   });
 
   it("origin of a workspace opened while another workspace is focused is the route, not the workspace URL", async () => {
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: makeWrapper() });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: makeWrapper() });
     let idB = "";
     await act(async () => {
       await result.current.open({ template: "cam", title: "A", params: { cameraId: "a" } });
@@ -740,7 +740,7 @@ describe("AppProvider: router-only usage (no workspaces prop)", () => {
   });
 
   it("useWorkspaces() still works below a router-only provider (empty list)", () => {
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: ({ children }) => (
         <AppProvider routes={routes}>{children}</AppProvider>
       ),

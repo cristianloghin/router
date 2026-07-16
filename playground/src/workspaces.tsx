@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import {
   defineWorkspaces,
-  useWorkspaces,
+  useWorkspaceActions,
   type WorkspaceComponentProps,
 } from "@mikrostack/router";
 
 // ─── Camera feed — authenticated, schema-typed params, instance limit ─────────
 
 function CameraFeed({ workspace, channel }: WorkspaceComponentProps<{ cameraId: string; quality: number }>) {
-  const { updateParams, updateTitle } = useWorkspaces();
+  const { updateParams, updateTitle } = useWorkspaceActions();
   const [lastCommand, setLastCommand] = useState<string | null>(null);
 
   useEffect(() => {

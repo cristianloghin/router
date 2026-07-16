@@ -7,7 +7,7 @@ import { StackContainer } from "./StackContainer";
 import { useWorkspaceContainer } from "./containerContext";
 import { defineRoutes } from "../../router/RouteRegistry";
 import { defineWorkspaces } from "../../workspaces/defineWorkspaces";
-import { useWorkspaces } from "../../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions } from "../../workspaces/hooks";
 import type { WorkspaceComponentProps } from "../../workspaces/types";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ function Provider({ children }: { children: React.ReactNode }) {
 
 /** Hook-driven controls — the container itself is headless. */
 function Opener({ title = "Feed" }: { title?: string }) {
-  const { open } = useWorkspaces();
+  const { open } = useWorkspaceActions();
   return (
     <button
       data-testid={`open-${title}`}
@@ -49,7 +49,8 @@ function Opener({ title = "Feed" }: { title?: string }) {
 }
 
 function Actions() {
-  const { workspaces: list, close } = useWorkspaces();
+  const { workspaces: list } = useWorkspaces();
+  const { close } = useWorkspaceActions();
   return (
     <button
       data-testid="close-last"

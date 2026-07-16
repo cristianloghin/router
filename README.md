@@ -35,6 +35,7 @@ A React library that unifies browser routing and **workspace** navigation — in
   - [Adapter types](#adapter-types)
   - [Container components](#container-components)
   - [useWorkspaces](#useworkspaces)
+  - [useWorkspaceActions](#useworkspaceactions)
   - [useWorkspace](#useworkspace)
   - [useWorkspaceChannel](#useworkspacechannel)
   - [Channel messaging](#channel-messaging)
@@ -625,7 +626,7 @@ import { Workspaces } from "@mikrostack/router";
 
 The per-adapter containers are internal — `<Workspaces>` always renders the one matching `config.adapter`, so there is no wrong choice to make.
 
-**Containers are headless.** They inject no buttons or UI copy — wrap each workspace's content in your own chrome with the `renderWorkspace` prop (`(workspace, content) => ReactNode`, default: renders `content` bare) and drive focus/close from your chrome via `useWorkspaces()`.
+**Containers are headless.** They inject no buttons or UI copy — wrap each workspace's content in your own chrome with the `renderWorkspace` prop (`(workspace, content) => ReactNode`, default: renders `content` bare) and drive focus/close from your chrome via `useWorkspaceActions()`.
 
 **`children` as the root page.** Under the swipe adapter, `children` becomes page 0 of the swipe track — the deck starts at your dashboard. Under the stack adapter, `children` renders whenever no workspace URL is focused. Under tabs, `children` renders in the launching tab alongside a strip of open workspaces — a workspace's content renders **only** in its own browser tab, never inline in the launching app, and the launching tab's URL never changes.
 
@@ -640,11 +641,66 @@ deck?.scrollTo({ left: 0, behavior: "smooth" });
 
 ### `useWorkspaces`
 
-The primary hook for managing workspaces. Returns the workspace list, the currently focused workspace, and all management methods.
+Subscribing workspace state. Returns the snapshot `{ workspaces, current, adapterType }` and re-renders on every workspace event. Actions live on [`useWorkspaceActions`](#useworkspaceactions).
 
 ```tsx
-function WorkspaceManager() {
-  const { workspaces, current, open, close, focus, updateParams, updateTitle, adapterType } = useWorkspaces();
+function WorkspaceList() {
+  const { workspaces, current } = useWorkspaces();
+  const { focus, close } = useWorkspaceActions();
+
+  return (
+    <div>
+      {workspaces.map((ws) => (
+        <div key={ws.id} data-active={ws.id === current?.id}>
+          <span>{ws.title}</span>
+          <button onClick={() => focus(ws.id)}>Focus</button>
+          <button onClick={() => close(ws.id)}>Close</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+**State:**
+
+| Property | Type | Description |
+|---|---|---|
+| `workspaces` | `WorkspaceDescriptor[]` | All currently open workspaces |
+| `current` | `WorkspaceDescriptor \| null` | The currently focused workspace |
+| `adapterType` | `"stack" \| "swipe" \| "tabs"` | The active adapter type (constant; rides in the snapshot for convenience) |
+
+With registered workspaces (see [Full TypeScript types](#full-typescript-types)), `workspaces` is a discriminated union over your templates — comparing `template` narrows `params`, including through `.filter()`:
+
+```tsx
+const walls = workspaces.filter((w) => w.template === "wall");
+// walls[i].params is typed per the "wall" schema — no casts
+```
+
+**Selector form** — `useWorkspaces(selector, isEqual?)` returns only the selected slice and skips re-renders while `isEqual` (default `Object.is`) considers it unchanged:
+
+```tsx
+const count = useWorkspaces((s) => s.workspaces.length); // re-renders only when the count changes
+```
+
+> **Footgun:** a selector that returns a fresh array/object each call (e.g. `s => s.workspaces.filter(...)`) never compares equal under the default `Object.is`, so it skips nothing. Pass the exported `shallowEqual` when deriving collections:
+>
+> ```tsx
+> import { shallowEqual } from "@mikrostack/router";
+>
+> const wallIds = useWorkspaces(
+>   (s) => s.workspaces.filter((w) => w.template === "wall").map((w) => w.id),
+>   shallowEqual,
+> );
+> ```
+
+### `useWorkspaceActions`
+
+Non-subscribing workspace actions — never causes a re-render, and the returned object is referentially stable (safe in effect deps). Use it in components that only *do* things (toolbars, launch buttons) so they don't re-render on every workspace event.
+
+```tsx
+function OpenCameraButton() {
+  const { open } = useWorkspaceActions(); // this component never re-renders on workspace events
 
   const handleOpen = async () => {
     try {
@@ -661,18 +717,7 @@ function WorkspaceManager() {
     }
   };
 
-  return (
-    <div>
-      <button onClick={handleOpen}>Open Camera</button>
-      {workspaces.map((ws) => (
-        <div key={ws.id}>
-          <span>{ws.title}</span>
-          <button onClick={() => focus(ws.id)}>Focus</button>
-          <button onClick={() => close(ws.id)}>Close</button>
-        </div>
-      ))}
-    </div>
-  );
+  return <button onClick={handleOpen}>Open Camera</button>;
 }
 ```
 
@@ -685,14 +730,8 @@ function WorkspaceManager() {
 | `close` | `(id: string, autoFocus?: boolean) => Promise<void>` | Close a workspace. Navigates back to the origin route. |
 | `updateParams` | `(id, params) => WorkspaceDescriptor` | Update workspace params (partial merge). Replaces the URL only when the workspace is the focused one. |
 | `updateTitle` | `(id, title) => WorkspaceDescriptor` | Update the workspace title. |
-
-**State:**
-
-| Property | Type | Description |
-|---|---|---|
-| `workspaces` | `WorkspaceDescriptor[]` | All currently open workspaces |
-| `current` | `WorkspaceDescriptor \| null` | The currently focused workspace |
-| `adapterType` | `"stack" \| "swipe" \| "tabs"` | The active adapter type |
+| `getAll` | `() => WorkspaceDescriptor[]` | Non-reactive read of all open workspaces — for handler-time reads, not rendering. |
+| `getCurrent` | `() => WorkspaceDescriptor \| null` | Non-reactive read of the focused workspace — for handler-time reads, not rendering. |
 
 ### `useWorkspace`
 
@@ -847,7 +886,7 @@ declare module "@mikrostack/router" {
 // In any component — no generics needed:
 const { navigate } = useNavigation();
 navigate("/camera/:id", { params: { id: "cam-4" } }); // keys + params checked
-const { open } = useWorkspaces();
+const { open } = useWorkspaceActions();
 
 // Fully typed — template keys and params are checked at compile time
 await open({ template: "camera", title: "Cam 1", params: { cameraId: "c1" } });
@@ -857,7 +896,7 @@ await open({ template: "report", title: "Report", params: { reportId: "r1", form
 await open({ template: "unknown", title: "T", params: {} });
 ```
 
-Without registration, keys are plain strings (no checking). An explicit generic (`useWorkspaces<typeof workspaces>()`) also works for one-off typing.
+Without registration, keys are plain strings (no checking). An explicit generic (`useWorkspaceActions<typeof workspaces>()`) also works for one-off typing.
 
 ---
 
@@ -887,7 +926,8 @@ useMeta()             → [meta, setMeta]
 usePrompt(msg, when)
 
 // Workspace hooks
-useWorkspaces()          → { workspaces, current, adapterType, open, focus, close, updateParams, updateTitle }
+useWorkspaces()          → { workspaces, current, adapterType }   // subscribing; useWorkspaces(selector, isEqual?) selects a slice
+useWorkspaceActions()    → { open, focus, close, updateParams, updateTitle, getAll, getCurrent }   // non-subscribing
 useWorkspace(id)         → { workspace, params } | null
 useWorkspaceChannel(id)  → { inbound, outbound } | null
 useWorkspaceContainer()  → HTMLElement | null   // the active container's scroll element
@@ -900,6 +940,7 @@ navigate(to, options?)
 
 // Utilities
 notFound()
+shallowEqual(a, b)      // one-level equality — pass as isEqual for collection selectors
 
 // Types
 WorkspaceError          // extends Error, has .code and .workspaceId

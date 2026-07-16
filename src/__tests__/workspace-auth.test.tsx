@@ -9,7 +9,7 @@ import { renderHook, act, render, screen, fireEvent, within } from "@testing-lib
 import { AppProvider } from "../provider/AppProvider";
 import { defineRoutes } from "../router/RouteRegistry";
 import { defineWorkspaces } from "../workspaces/defineWorkspaces";
-import { useWorkspaces } from "../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions } from "../workspaces/hooks";
 import { StackContainer } from "../components/containers/StackContainer";
 import type { WorkspaceComponentProps, WorkspaceDescriptor } from "../workspaces/types";
 
@@ -52,7 +52,7 @@ describe("workspace-auth: public", () => {
     const workspaces = defineWorkspaces({
       publicWs: { component: Stub, auth: { type: "public" } },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -73,7 +73,7 @@ describe("workspace-auth: authenticated", () => {
     const workspaces = defineWorkspaces({
       authWs: { component: Stub, auth: { type: "authenticated" } },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces, () => true),
     });
 
@@ -89,7 +89,7 @@ describe("workspace-auth: authenticated", () => {
     const workspaces = defineWorkspaces({
       authWs: { component: Stub, auth: { type: "authenticated" } },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces, () => false),
     });
 
@@ -105,7 +105,7 @@ describe("workspace-auth: authenticated", () => {
       authWs: { component: Stub, auth: { type: "authenticated" } },
     });
     // No auth config → default isAuthenticated = () => false
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: ({ children }) => (
         <AppProvider routes={routes} workspaces={workspaces} config={{ adapter: "stack" }}>
           {children}
@@ -131,7 +131,7 @@ describe("workspace-auth: time-limited", () => {
         auth: { type: "time-limited", expiresAt: Date.now() + 60_000 },
       },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -150,7 +150,7 @@ describe("workspace-auth: time-limited", () => {
         auth: { type: "time-limited", expiresAt: 0 },
       },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -168,7 +168,7 @@ describe("workspace-auth: time-limited", () => {
         auth: { type: "time-limited", expiresAt: () => Date.now() + 60_000 },
       },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -203,7 +203,7 @@ describe("workspace-auth: credential (built-in dialog)", () => {
         },
       },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -224,7 +224,7 @@ describe("workspace-auth: credential (built-in dialog)", () => {
         auth: { type: "credential", validate: () => false },
       },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -244,7 +244,7 @@ describe("workspace-auth: credential (built-in dialog)", () => {
         auth: { type: "credential", validate: () => true },
       },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -274,7 +274,7 @@ describe("workspace-auth: credential (built-in dialog)", () => {
         },
       },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -294,7 +294,7 @@ describe("workspace-auth: credential (built-in dialog)", () => {
 describe("workspace-auth: unknown template", () => {
   it("open() rejects with ADAPTER_ERROR for an unknown template key", async () => {
     const workspaces = defineWorkspaces({});
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces),
     });
 
@@ -313,7 +313,7 @@ describe("workspace-auth: maxInstances", () => {
     const workspaces = defineWorkspaces({
       limited: { component: Stub, maxInstances: 1 },
     });
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: makeWrapper(workspaces, () => true),
     });
 

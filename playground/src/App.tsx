@@ -7,6 +7,7 @@ import {
   useLocation,
   useNavigation,
   useWorkspaces,
+  useWorkspaceActions,
   type AppConfig,
   type WorkspaceDescriptor,
 } from "@mikrostack/router";
@@ -58,7 +59,7 @@ export function App() {
  * the production experience.
  */
 function Shell() {
-  const { adapterType } = useWorkspaces();
+  const adapterType = useWorkspaces((s) => s.adapterType);
   const { inWorkspace } = useLocation();
   const [chrome, setChrome] = useState(
     () => localStorage.getItem("playground:chrome") !== "0",
@@ -115,7 +116,7 @@ function renderWorkspaceFrame(workspace: WorkspaceDescriptor, content: React.Rea
 }
 
 function WorkspaceFrame({ workspace, children }: { workspace: WorkspaceDescriptor; children: React.ReactNode }) {
-  const { close } = useWorkspaces();
+  const { close } = useWorkspaceActions();
   return (
     <div className="ws-frame">
       <div className="ws-titlebar">

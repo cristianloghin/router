@@ -17,7 +17,13 @@ export { navigate } from "./router/RouterContext";
 // ─── Workspaces ───────────────────────────────────────────────────────────────
 
 export { defineWorkspaces } from "./workspaces/defineWorkspaces";
-export { useWorkspaces, useWorkspace, useWorkspaceChannel } from "./workspaces/hooks";
+export {
+  useWorkspaces,
+  useWorkspaceActions,
+  useWorkspace,
+  useWorkspaceChannel,
+} from "./workspaces/hooks";
+export { shallowEqual } from "./utils/shallowEqual";
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -64,8 +70,11 @@ export type {
   InferSchemaParams,
   InferParams,
   RegisteredWorkspaces,
+  TypedWorkspaceDescriptor,
+  WorkspaceUnion,
 } from "./workspaces/types";
 export { WorkspaceError } from "./workspaces/types";
+export type { WorkspacesSnapshot } from "./workspaces/hooks";
 
 export type { AppProviderProps, AppConfig } from "./provider/AppProvider";
 export type { RouterViewProps } from "./components/RouterView";

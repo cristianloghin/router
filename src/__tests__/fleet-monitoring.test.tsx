@@ -15,7 +15,7 @@ import { StackContainer } from "../components/containers/StackContainer";
 import { defineRoutes } from "../router/RouteRegistry";
 import { defineWorkspaces } from "../workspaces/defineWorkspaces";
 import { useNavigation, useLocation } from "../router/hooks";
-import { useWorkspaces, useWorkspace } from "../workspaces/hooks";
+import { useWorkspaces, useWorkspaceActions, useWorkspace } from "../workspaces/hooks";
 import type { WorkspaceComponentProps } from "../workspaces/types";
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ describe("fleet-monitoring: route navigation", () => {
 
 describe("fleet-monitoring: workspace open", () => {
   it("open() adds workspace to the workspaces list", async () => {
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: makeWrapper() });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: makeWrapper() });
     await act(async () => {
       await result.current.open({
         template: "cameraFeed",
@@ -148,7 +148,7 @@ describe("fleet-monitoring: workspace open", () => {
 
   it("URL changes to workspace URL after open()", async () => {
     const { result } = renderHook(
-      () => ({ ws: useWorkspaces(), loc: useLocation() }),
+      () => ({ ws: { ...useWorkspaces(), ...useWorkspaceActions() }, loc: useLocation() }),
       { wrapper: makeWrapper() },
     );
     let d: Awaited<ReturnType<typeof result.current.ws.open>> = undefined!;
@@ -164,7 +164,7 @@ describe("fleet-monitoring: workspace open", () => {
 
   it("router path stays at '/' after workspace open (route stays rendered)", async () => {
     const { result } = renderHook(
-      () => ({ ws: useWorkspaces(), loc: useLocation() }),
+      () => ({ ws: { ...useWorkspaces(), ...useWorkspaceActions() }, loc: useLocation() }),
       { wrapper: makeWrapper() },
     );
     await act(async () => {
@@ -179,7 +179,7 @@ describe("fleet-monitoring: workspace open", () => {
 
   it("StackContainer renders workspace component after open()", async () => {
     function Opener() {
-      const { open } = useWorkspaces();
+      const { open } = useWorkspaceActions();
       return (
         <button
           data-testid="open-cam"
@@ -208,7 +208,7 @@ describe("fleet-monitoring: workspace open", () => {
 
 describe("fleet-monitoring: workspace close", () => {
   it("close(id) removes workspace from list", async () => {
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: makeWrapper() });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: makeWrapper() });
     let d: Awaited<ReturnType<typeof result.current.open>> = undefined!;
     await act(async () => {
       d = await result.current.open({
@@ -223,7 +223,7 @@ describe("fleet-monitoring: workspace close", () => {
 
   it("URL returns to origin after close()", async () => {
     window.history.replaceState(null, "", "/");
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: makeWrapper() });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: makeWrapper() });
     let d: Awaited<ReturnType<typeof result.current.open>> = undefined!;
     await act(async () => {
       d = await result.current.open({
@@ -241,7 +241,7 @@ describe("fleet-monitoring: workspace close", () => {
 
 describe("fleet-monitoring: updateParams", () => {
   it("updateParams updates params in useWorkspace", async () => {
-    const { result } = renderHook(() => useWorkspaces(), { wrapper: makeWrapper() });
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), { wrapper: makeWrapper() });
     let d: Awaited<ReturnType<typeof result.current.open>> = undefined!;
     await act(async () => {
       d = await result.current.open({
@@ -258,7 +258,7 @@ describe("fleet-monitoring: updateParams", () => {
 
   it("updateParams uses replace (URL updated in place, not pushed)", async () => {
     const onNavigate = vi.fn();
-    const { result } = renderHook(() => useWorkspaces(), {
+    const { result } = renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
       wrapper: ({ children }) => (
         <AppProvider
           routes={routes}

@@ -59,6 +59,21 @@ Module ownership:
   destroyed before `adapter.close()` resolves, recreated on persistence
   restore. Under tabs, emits mirror over `BroadcastChannel`
   (`chbus:workspace:{id}`); remote re-emits bypass the bridge (loop-safe).
+- **Workspace hooks split by subscribing vs. non-subscribing** (not state vs.
+  actions): `useWorkspaces()` returns only the snapshot
+  `{ workspaces, current, adapterType }`; `useWorkspaceActions()` never
+  re-renders, is referentially stable, and carries `getAll()`/`getCurrent()`
+  for handler-time reads. `workspaces` is a discriminated union over
+  registered templates (`WorkspaceUnion`) — `.filter((w) => w.template ===
+  "x")` narrows via TS ≥ 5.5 inferred predicates (verified: the inference
+  survives `WorkspaceDescriptor`'s shape, see `typed-routes.test.ts`).
+- **`useWorkspaces(selector, isEqual?)` caches the selected value per
+  snapshot identity** (hand-rolled `with-selector` equivalent — the library
+  keeps zero runtime deps). The hook implementation is typed against the
+  loose template map so `src/` compiles identically with or without a
+  `Register` augmentation in scope (the playground compiles src/ with one).
+  Documented footgun: a selector returning a fresh collection under the
+  default `Object.is` skips nothing — `shallowEqual` is exported for that.
 - **Persistence**: localStorage key `ws:v{version}` (localStorage, not
   sessionStorage — workspaces must survive a PWA being closed and reopened);
   version mismatch discards (no migration by design). Persistence is
@@ -73,13 +88,45 @@ Module ownership:
 - **`onBeforeNavigate`'s `cancel()` on a workspace navigation blocks only the
   URL change** — the adapter mutation has already happened by then.
 - **Containers are headless** — no injected buttons or UI copy; apps supply
-  chrome via `renderWorkspace` and drive focus/close via `useWorkspaces()`.
+  chrome via `renderWorkspace` and drive focus/close via
+  `useWorkspaceActions()`.
 - **No bus-exposure hook** (`useAppBus`) — apps keep their own chbus bus and
   may pass it via the `bus` prop for unified logging; deeper coupling rejected.
 - **No `setPrevious`/`getPrevious`** — per-workspace origins + the stable
   router path cover it.
 - **Out of scope**: runtime adapter switching, persisted-state migration,
   animated route transitions, SSR, React Native.
+
+## Planned (specced, not yet built)
+
+Design agreed before code, per house rules. Delete each entry when it ships;
+move any surviving invariants up into the sections above.
+
+### `open()` dedupes by default (focus-or-open)
+
+**Motivation:** in a workspace manager, "open" means *ensure it exists and is
+focused* — the semantics of browser named windows and editor tabs. The app's
+`Camera` currently hand-rolls find → focus-else-open.
+
+- On `open()`, if a live workspace has the same template and deep-equal
+  params: `focus()` it and resolve with the **existing** descriptor. The
+  supplied `title` (and everything else in the input) is ignored on match —
+  no merge, no update.
+- Array params compare order-sensitively (`{streamIds: [1,2]}` ≠
+  `{streamIds: [2,1]}` — tile order is meaningful). Schema params are flat
+  primitive/array records, so deep comparison is bounded.
+- **New invariant: params are identity.** View-state must not creep into
+  param schemas or dedup silently mismatches. Document in the
+  `defineWorkspaces` docs.
+- **Rejected: per-call `match` callback on `open`.** Identity is a property
+  of the template, not the call site — per-call matchers let two call sites
+  give the same template different identity semantics, defeating dedup. If a
+  template's identity ever diverges from its full params, the extension point
+  is a per-template declaration in `defineWorkspaces` (e.g.
+  `identity: ["streamId"]`), added additively then — not now.
+- No `allowDuplicate` escape hatch until a call site needs one.
+- App migration: `Camera.tsx` collapses to a bare `open()`, which also removes
+  its need for handler-time workspace reads.
 
 ## Known quirks / gaps (candidates for future work)
 

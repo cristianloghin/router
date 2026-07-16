@@ -145,6 +145,42 @@ export type RegisteredWorkspaces = Register extends { workspaces: infer W }
   ? W
   : WorkspaceTemplateMap;
 
+// ─── Descriptor union over registered templates ───────────────────────────────
+
+/**
+ * A WorkspaceDescriptor whose `template` is narrowed to one registered key
+ * and whose `params` are typed for that template.
+ */
+export interface TypedWorkspaceDescriptor<
+  TTemplate extends string = string,
+  TParams extends WorkspaceParams = WorkspaceParams,
+> extends WorkspaceDescriptor<TParams> {
+  readonly template: TTemplate;
+}
+
+/**
+ * Discriminated union of descriptors across the registered templates, with
+ * `template` as the discriminant. Comparing it narrows `params`:
+ *
+ * ```ts
+ * const walls = workspaces.filter((w) => w.template === "wall");
+ * // walls[i].params is typed per the "wall" schema (TS ≥ 5.5 inferred
+ * // predicates make the filter narrow without casts)
+ * ```
+ *
+ * Without a Register augmentation this degrades to plain WorkspaceDescriptor.
+ */
+export type WorkspaceUnion<
+  TWorkspaces extends Record<string, unknown> = RegisteredWorkspaces,
+> = string extends keyof TWorkspaces
+  ? WorkspaceDescriptor
+  : {
+      [K in keyof TWorkspaces & string]: TypedWorkspaceDescriptor<
+        K,
+        InferParams<TWorkspaces[K]>
+      >;
+    }[keyof TWorkspaces & string];
+
 // ─── WorkspaceEvent ───────────────────────────────────────────────────────────
 
 export type WorkspaceEvent =
