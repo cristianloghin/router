@@ -318,12 +318,12 @@ describe("workspace-auth: maxInstances", () => {
     });
 
     await act(async () => {
-      await result.current.open({ template: "limited", title: "First", params: {} });
+      await result.current.open({ template: "limited", title: "First", params: { n: 1 } });
     });
 
     await act(async () => {
       await expect(
-        result.current.open({ template: "limited", title: "Second", params: {} }),
+        result.current.open({ template: "limited", title: "Second", params: { n: 2 } }),
       ).rejects.toMatchObject({ code: "MAX_INSTANCES_REACHED" });
     });
   });

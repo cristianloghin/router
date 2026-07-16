@@ -2,7 +2,7 @@
  * Integration: workspace channel messaging (§7 of spec).
  * Uses only public API imports — no internal modules.
  */
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import { renderHook } from "@testing-library/react";
@@ -285,9 +285,10 @@ describe("workspace-channel: isolation between workspaces", () => {
 
     function App() {
       const { open } = useWorkspaceActions();
+      const nextRef = useRef(0);
       return (
         <>
-          <button data-testid="open" onClick={() => open({ template: "ws", title: "T", params: {} })}>
+          <button data-testid="open" onClick={() => open({ template: "ws", title: "T", params: { n: ++nextRef.current } })}>
             Open
           </button>
           <StackContainer />
@@ -335,9 +336,10 @@ describe("workspace-channel: isolation between workspaces", () => {
 
     function App() {
       const { open } = useWorkspaceActions();
+      const nextRef = useRef(0);
       return (
         <>
-          <button data-testid="open" onClick={() => open({ template: "ws", title: "T", params: {} })}>
+          <button data-testid="open" onClick={() => open({ template: "ws", title: "T", params: { n: ++nextRef.current } })}>
             Open
           </button>
           <StackContainer />

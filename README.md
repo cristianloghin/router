@@ -564,6 +564,8 @@ const workspaces = defineWorkspaces({
 
 **The schema is schema-first:** `workspace.params` in the component, and the `params` arguments to `open()`/`updateParams()`, are *inferred* from `schema` — declare the shape once, no separate params type and no casts. `cameraFeed` above gives `params: { cameraId: string; quality: number }` everywhere. Templates without a schema get loosely typed string params.
 
+**Params are identity.** `open()` dedupes by default: a live workspace with the same template and deep-equal params is focused instead of duplicated (see [`useWorkspaceActions`](#useworkspaceactions)). Design your `schema` so params identify *which* workspace this is — never put view-state (zoom level, scroll position, selected tab) in params, or two logically-identical workspaces will silently count as different ones.
+
 ### Auth rules
 
 Auth is evaluated before `open()` proceeds and when a workspace URL is accessed directly (e.g. in a new tab). Failed auth rejects the `open()` promise with a `WorkspaceError`.
@@ -721,11 +723,13 @@ function OpenCameraButton() {
 }
 ```
 
+`open()` has focus-or-open semantics — the semantics of browser named windows and editor tabs. Calling it twice with the same template and params focuses the existing workspace and resolves with its descriptor instead of opening a duplicate, so callers never need to hand-roll find → focus-else-open.
+
 **Methods:**
 
 | Method | Signature | Description |
 |---|---|---|
-| `open` | `(input) => Promise<WorkspaceDescriptor>` | Open a new workspace instance. Rejects with `WorkspaceError` on auth failure or limit exceeded. `input.origin` (optional route path) installs a different background route first, replacing the current history entry — use it when the launching page (e.g. a creation form) should not be returned to by close, swipe-to-root, or the browser back button. |
+| `open` | `(input) => Promise<WorkspaceDescriptor>` | Focus-or-open: if a live workspace has the same template and deep-equal params (arrays order-sensitive), it is focused and returned — the rest of the input is ignored on match. Otherwise opens a new instance; rejects with `WorkspaceError` on auth failure or limit exceeded. `input.origin` (optional route path) installs a different background route first, replacing the current history entry — use it when the launching page (e.g. a creation form) should not be returned to by close, swipe-to-root, or the browser back button. |
 | `focus` | `(id: string) => Promise<WorkspaceDescriptor>` | Focus an open workspace. |
 | `close` | `(id: string, autoFocus?: boolean) => Promise<void>` | Close a workspace. Navigates back to the origin route. |
 | `updateParams` | `(id, params) => WorkspaceDescriptor` | Update workspace params (partial merge). Replaces the URL only when the workspace is the focused one. |
