@@ -303,6 +303,108 @@ describe("WorkspaceManager: open — maxInstances", () => {
   });
 });
 
+// ─── open — dedup (focus-or-open) ─────────────────────────────────────────────
+
+describe("WorkspaceManager: open dedupes by default", () => {
+  it("same template + deep-equal params focuses the existing workspace instead of opening", async () => {
+    const existing = makeDescriptor("ws-live", "cam", { cameraId: "c1" });
+    const { manager, adapter } = makeManager({ initialWorkspaces: [existing] });
+
+    const result = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+
+    expect(result.id).toBe("ws-live");
+    expect(adapter.open).not.toHaveBeenCalled();
+    expect(adapter.focus).toHaveBeenCalledWith("ws-live");
+  });
+
+  it("the input title is ignored on match — no merge, no update", async () => {
+    const existing = makeDescriptor("ws-live", "cam", { cameraId: "c1" });
+    const { manager, adapter } = makeManager({ initialWorkspaces: [existing] });
+
+    const result = await manager.open({ template: "cam", title: "A Different Title", params: { cameraId: "c1" } });
+
+    expect(result.title).toBe("Test Cam");
+    expect(adapter.updateTitle).not.toHaveBeenCalled();
+  });
+
+  it("an explicit origin is ignored on match — no history replacement", async () => {
+    const existing = makeDescriptor("ws-live", "cam", { cameraId: "c1" });
+    const navigate = vi.fn();
+    const { manager } = makeManager({ initialWorkspaces: [existing], navigate });
+
+    await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" }, origin: "/elsewhere" });
+
+    const replaceCalls = navigate.mock.calls.filter(
+      ([, opts]) => (opts as { replace?: boolean } | undefined)?.replace === true,
+    );
+    expect(replaceCalls).toHaveLength(0);
+  });
+
+  it("different params open a new workspace", async () => {
+    const existing = makeDescriptor("ws-live", "cam", { cameraId: "c1" });
+    const { manager, adapter } = makeManager({ initialWorkspaces: [existing] });
+
+    const result = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c2" } });
+
+    expect(result.id).not.toBe("ws-live");
+    expect(adapter.open).toHaveBeenCalled();
+  });
+
+  it("equal params on a different template open a new workspace", async () => {
+    const existing = makeDescriptor("ws-live", "scratch", {});
+    const { manager, adapter } = makeManager({ initialWorkspaces: [existing] });
+
+    const result = await manager.open({ template: "secured", title: "S", params: {} });
+
+    expect(result.id).not.toBe("ws-live");
+    expect(adapter.open).toHaveBeenCalled();
+  });
+
+  it("a subset/superset of params is not a match", async () => {
+    const existing = makeDescriptor("ws-live", "scratch", { a: 1 });
+    const { manager, adapter } = makeManager({ initialWorkspaces: [existing] });
+
+    await manager.open({ template: "scratch", title: "S", params: { a: 1, b: 2 } });
+
+    expect(adapter.focus).not.toHaveBeenCalled();
+    expect(adapter.open).toHaveBeenCalled();
+  });
+
+  it("array params compare order-sensitively", async () => {
+    const existing = makeDescriptor("ws-live", "scratch", { streamIds: [1, 2] });
+    const { manager, adapter } = makeManager({ initialWorkspaces: [existing] });
+
+    // Same order → match
+    const same = await manager.open({ template: "scratch", title: "S", params: { streamIds: [1, 2] } });
+    expect(same.id).toBe("ws-live");
+
+    // Different order → different workspace (tile order is meaningful)
+    const reordered = await manager.open({ template: "scratch", title: "S", params: { streamIds: [2, 1] } });
+    expect(reordered.id).not.toBe("ws-live");
+    expect(adapter.open).toHaveBeenCalledTimes(1);
+  });
+
+  it("a match wins over maxInstances — focusing creates nothing", async () => {
+    const existing = makeDescriptor("ws-live", "cam", { cameraId: "c1" });
+    const { manager } = makeManager({ initialWorkspaces: [existing], maxInstances: 1 });
+
+    // At capacity, but the params match a live workspace: focus, don't throw.
+    const result = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    expect(result.id).toBe("ws-live");
+  });
+
+  it("a closed workspace no longer matches — open creates a fresh one", async () => {
+    const { manager, adapter } = makeManager({});
+
+    const first = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+    await manager.close(first.id);
+    const second = await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+
+    expect(second.id).not.toBe(first.id);
+    expect(adapter.open).toHaveBeenCalledTimes(2);
+  });
+});
+
 // ─── focus ────────────────────────────────────────────────────────────────────
 
 describe("WorkspaceManager: focus", () => {
@@ -811,7 +913,7 @@ describe("WorkspaceManager: maxWorkspaces", () => {
     const existing = [makeDescriptor("ws-a"), makeDescriptor("ws-b")];
     const { manager } = makeManager({ initialWorkspaces: existing, maxWorkspaces: 2 });
     try {
-      await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } });
+      await manager.open({ template: "cam", title: "Feed", params: { cameraId: "c-new" } });
       expect.unreachable("open() should have rejected");
     } catch (err) {
       expect((err as WorkspaceError).code).toBe("MAX_WORKSPACES_REACHED");
@@ -821,7 +923,7 @@ describe("WorkspaceManager: maxWorkspaces", () => {
   it("allows opening below the limit", async () => {
     const { manager } = makeManager({ initialWorkspaces: [makeDescriptor("ws-a")], maxWorkspaces: 2 });
     await expect(
-      manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } }),
+      manager.open({ template: "cam", title: "Feed", params: { cameraId: "c-new" } }),
     ).resolves.toBeDefined();
   });
 
@@ -829,7 +931,7 @@ describe("WorkspaceManager: maxWorkspaces", () => {
     const ten = Array.from({ length: 10 }, (_, i) => makeDescriptor(`ws-${i}`));
     const { manager } = makeManager({ initialWorkspaces: ten });
     await expect(
-      manager.open({ template: "cam", title: "Feed", params: { cameraId: "c1" } }),
+      manager.open({ template: "cam", title: "Feed", params: { cameraId: "c-new" } }),
     ).rejects.toMatchObject({ code: "MAX_WORKSPACES_REACHED" });
   });
 });

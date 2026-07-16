@@ -51,6 +51,15 @@ Module ownership:
   also never emits `workspace:focused` (`SwipeAdapter.setCurrentIndex`).
 - **`updateParams` is a partial merge** (fixed 2026-07-14 — adapters replace,
   the manager merges) and only syncs the URL when the workspace is focused.
+- **`open()` dedupes by default (focus-or-open)**: a live workspace with the
+  same template and deep-equal params is `focus()`ed and `open()` resolves
+  with the **existing** descriptor — the rest of the input (`title`,
+  `origin`) is ignored on match, no merge, no update. Arrays compare
+  order-sensitively (`{streamIds: [1,2]}` ≠ `{streamIds: [2,1]}` — tile
+  order is meaningful). The match check runs **before** the instance-limit
+  checks: a match creates nothing, so `maxInstances`/`maxWorkspaces` don't
+  apply to it. Consequence: **params are identity** — view-state must not
+  creep into param schemas or dedup silently mismatches.
 - **`RouterStore` lives in a ref but is destroyed in an effect cleanup** — so
   `destroy()` must stay reversible (`attach()` re-registers popstate) or
   StrictMode's simulated unmount permanently deafens the router. Regression
@@ -92,6 +101,13 @@ Module ownership:
   `useWorkspaceActions()`.
 - **No bus-exposure hook** (`useAppBus`) — apps keep their own chbus bus and
   may pass it via the `bus` prop for unified logging; deeper coupling rejected.
+- **No per-call `match` callback on `open()`** — identity is a property of
+  the template, not the call site; per-call matchers would let two call
+  sites give the same template different identity semantics, defeating
+  dedup. If a template's identity ever diverges from its full params, the
+  extension point is a per-template declaration in `defineWorkspaces`
+  (e.g. `identity: ["streamId"]`), added additively then. Likewise no
+  `allowDuplicate` escape hatch until a call site needs one.
 - **No `setPrevious`/`getPrevious`** — per-workspace origins + the stable
   router path cover it.
 - **Out of scope**: runtime adapter switching, persisted-state migration,
@@ -102,31 +118,7 @@ Module ownership:
 Design agreed before code, per house rules. Delete each entry when it ships;
 move any surviving invariants up into the sections above.
 
-### `open()` dedupes by default (focus-or-open)
-
-**Motivation:** in a workspace manager, "open" means *ensure it exists and is
-focused* — the semantics of browser named windows and editor tabs. The app's
-`Camera` currently hand-rolls find → focus-else-open.
-
-- On `open()`, if a live workspace has the same template and deep-equal
-  params: `focus()` it and resolve with the **existing** descriptor. The
-  supplied `title` (and everything else in the input) is ignored on match —
-  no merge, no update.
-- Array params compare order-sensitively (`{streamIds: [1,2]}` ≠
-  `{streamIds: [2,1]}` — tile order is meaningful). Schema params are flat
-  primitive/array records, so deep comparison is bounded.
-- **New invariant: params are identity.** View-state must not creep into
-  param schemas or dedup silently mismatches. Document in the
-  `defineWorkspaces` docs.
-- **Rejected: per-call `match` callback on `open`.** Identity is a property
-  of the template, not the call site — per-call matchers let two call sites
-  give the same template different identity semantics, defeating dedup. If a
-  template's identity ever diverges from its full params, the extension point
-  is a per-template declaration in `defineWorkspaces` (e.g.
-  `identity: ["streamId"]`), added additively then — not now.
-- No `allowDuplicate` escape hatch until a call site needs one.
-- App migration: `Camera.tsx` collapses to a bare `open()`, which also removes
-  its need for handler-time workspace reads.
+Nothing specced right now.
 
 ## Known quirks / gaps (candidates for future work)
 

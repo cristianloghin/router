@@ -17,6 +17,32 @@ import { serialize, paramsToRecord } from "../utils/params";
 import type { ParamSchema } from "../utils/params";
 import type { CredentialInput } from "./types";
 
+// ─── Param identity ──────────────────────────────────────────────────────────
+
+/**
+ * Deep equality over workspace params — flat records of primitives or
+ * primitive arrays (see WorkspaceParams), so one level of array comparison
+ * is exhaustive. Arrays compare order-sensitively: {streamIds: [1, 2]} and
+ * {streamIds: [2, 1]} are different workspaces (tile order is meaningful).
+ */
+function paramsEqual(a: WorkspaceParams, b: WorkspaceParams): boolean {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every((key) => {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    const va = a[key];
+    const vb = b[key];
+    if (Array.isArray(va) || Array.isArray(vb)) {
+      if (!Array.isArray(va) || !Array.isArray(vb) || va.length !== vb.length) {
+        return false;
+      }
+      return va.every((value, i) => Object.is(value, vb[i]));
+    }
+    return Object.is(va, vb);
+  });
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type WorkspaceNavType = "workspace-open" | "workspace-close";
@@ -349,6 +375,24 @@ export class WorkspaceManager {
     const template = this.templates[templateKey];
     if (!template) {
       throw new WorkspaceError("ADAPTER_ERROR", `Unknown template: ${templateKey}`, null);
+    }
+
+    // Focus-or-open: "open" means "ensure it exists and is focused" (browser
+    // named-window / editor-tab semantics). A live workspace with the same
+    // template and deep-equal params is focused and returned as-is — the
+    // rest of the input (title, origin) is ignored on match. Params are
+    // identity; view-state must not creep into param schemas. Runs before
+    // the instance-limit checks: a match creates nothing, so limits don't
+    // apply to it.
+    const match = this.adapter
+      .getAll()
+      .find(
+        (w) =>
+          w.template === templateKey &&
+          paramsEqual(w.params, input.params as WorkspaceParams),
+      );
+    if (match) {
+      return this.focus(match.id);
     }
 
     // maxWorkspaces check (global, across all templates)

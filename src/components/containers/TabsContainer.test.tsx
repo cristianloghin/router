@@ -54,7 +54,7 @@ function Opener({ title = "Feed" }: { title?: string }) {
   return (
     <button
       data-testid={`open-${title}`}
-      onClick={() => open({ template: "cam", title, params: {} })}
+      onClick={() => open({ template: "cam", title, params: { title } })}
     >
       {`Open ${title}`}
     </button>

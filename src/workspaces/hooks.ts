@@ -151,6 +151,12 @@ export function useWorkspaceActions<
 
   return useMemo(
     () => ({
+      /**
+       * Focus-or-open: a live workspace with the same template and
+       * deep-equal params (arrays order-sensitive) is focused and returned
+       * as-is — the rest of the input is ignored on match. Otherwise opens
+       * a new instance. Params are identity: keep view-state out of them.
+       */
       open<TKey extends keyof TWorkspaces>(
         input: OpenWorkspaceInput<TKey, InferParams<TWorkspaces[TKey]>>,
       ): Promise<WorkspaceDescriptor<InferParams<TWorkspaces[TKey]>>> {
