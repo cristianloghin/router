@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { useWorkspaces, useWorkspaceActions, useWorkspaceChannel, WorkspaceError } from "@mikrostack/router";
+import {
+  useWorkspaces,
+  useWorkspaceActions,
+  useWorkspaceChannel,
+  WorkspaceError,
+  type WorkspaceLifecycleContract,
+} from "@mikrostack/router";
+import { bus } from "./bus";
 
 let cameraCounter = 0;
 
@@ -25,6 +32,63 @@ export function PingButton({ wsId }: { wsId: string }) {
     <button onClick={() => channel.outbound.emit("take-snapshot", { quality: "high" })}>
       📸 snapshot{reply ? ` (◂ ${reply})` : ""}
     </button>
+  );
+}
+
+/**
+ * The router's view lifecycle edges, consumed the only way the library
+ * offers them: by name off the app's own bus. There is no typed `lifecycle`
+ * on WorkspaceChannel or useWorkspaceChannel() — for "is this workspace in
+ * view?" prefer the reactive useWorkspaces().current (see the top bar's
+ * `current:` badge). These edges are for ordering-sensitive work: exited
+ * always lands before entered, so a consumer can release a resource before
+ * the next workspace claims one.
+ */
+function LifecycleLog() {
+  const { workspaces } = useWorkspaces();
+  const [lines, setLines] = useState<string[]>([]);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // Titles are read at event time so a rename doesn't force a resubscribe.
+  const titles = useRef<Record<string, string>>({});
+  titles.current = Object.fromEntries(workspaces.map((ws) => [ws.id, ws.title]));
+
+  // Keyed on ids, not the array: the snapshot is a fresh array on every
+  // workspace event, which would otherwise resubscribe constantly.
+  const ids = workspaces.map((ws) => ws.id).join(",");
+
+  useEffect(() => {
+    const append = (line: string) =>
+      setLines((prev) => [...prev.slice(-30), `${new Date().toLocaleTimeString()}  ${line}`]);
+    const offs: Array<() => void> = [];
+
+    for (const id of ids ? ids.split(",") : []) {
+      const name = () => titles.current[id] ?? id.slice(0, 8);
+      // Get-or-create: this is the same channel object the router emits on.
+      const channel = bus
+        .namespace(`workspace:${id}`)
+        .channel<WorkspaceLifecycleContract>("lifecycle");
+      offs.push(
+        channel.on("view_exited", async () => append(`⏸ view_exited   ${name()}`)),
+        channel.on("view_entered", async () => append(`▶ view_entered  ${name()}`)),
+      );
+    }
+    return () => offs.forEach((off) => off());
+  }, [ids]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "nearest" });
+  }, [lines]);
+
+  return (
+    <div className="log" data-testid="lifecycle-log">
+      {lines.length === 0 ? (
+        <div>— lifecycle (view_entered / view_exited) —</div>
+      ) : (
+        lines.map((line, i) => <div key={i}>{line}</div>)
+      )}
+      <div ref={endRef} />
+    </div>
   );
 }
 
@@ -118,6 +182,8 @@ export function WorkspacePanel() {
       <div className="log" ref={logRef}>
         {log.length === 0 ? <div>— event log —</div> : log.map((line, i) => <div key={i}>{line}</div>)}
       </div>
+
+      <LifecycleLog />
     </div>
   );
 }

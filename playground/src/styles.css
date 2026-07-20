@@ -253,3 +253,31 @@ pre {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* ─── Swipe deck ──────────────────────────────────────────────────────────────
+   The SwipeContainer is headless: it sets only overflow-x + flex inline, and
+   suspends/restores `scroll-snap-type` around programmatic scrolls. Snap
+   itself is the app's to supply — without these rules the deck free-scrolls
+   and never settles on a page boundary. */
+
+[data-role="swipe-track"] {
+  scroll-snap-type: x mandatory;
+  height: 100%;
+  overscroll-behavior-x: contain;
+  /* Hide the horizontal scrollbar — a real deck is driven by touch. */
+  scrollbar-width: none;
+}
+
+[data-role="swipe-track"]::-webkit-scrollbar {
+  display: none;
+}
+
+[data-role="swipe-track"] > * {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  min-width: 0;
+}
+
+[data-component="swipe-container"] {
+  height: 100%;
+}
