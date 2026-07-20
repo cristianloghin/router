@@ -26,4 +26,14 @@ export class SwipeAdapter extends StackAdapter {
     }
     this.currentIndex = Math.max(0, Math.min(n, this.workspaces.length - 1));
   }
+
+  /**
+   * Settle on the root page: no workspace is in view, so getCurrent()
+   * returns null even while workspaces remain open. Distinct from
+   * setCurrentIndex(-1), which clamps into range — the root page is a real
+   * state, not an out-of-bounds index.
+   */
+  setCurrentToRoot(): void {
+    this.currentIndex = -1;
+  }
 }

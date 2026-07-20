@@ -72,3 +72,41 @@ describe("SwipeAdapter: setCurrentIndex", () => {
     expect(() => adapter.setCurrentIndex(999)).not.toThrow();
   });
 });
+
+describe("SwipeAdapter: setCurrentToRoot", () => {
+  it("clears the current workspace while leaving the deck open", async () => {
+    const adapter = new SwipeAdapter();
+    await adapter.open(makeDescriptor("ws-1"));
+    await adapter.open(makeDescriptor("ws-2"));
+
+    adapter.setCurrentToRoot();
+
+    expect(adapter.getCurrent()).toBeNull();
+    expect(adapter.getCurrentIndex()).toBe(-1);
+    expect(adapter.getAll()).toHaveLength(2);
+  });
+
+  it("does not clamp back into range the way setCurrentIndex(-1) does", async () => {
+    const adapter = new SwipeAdapter();
+    await adapter.open(makeDescriptor("ws-1"));
+
+    adapter.setCurrentIndex(-1);
+    expect(adapter.getCurrentIndex()).toBe(0);
+
+    adapter.setCurrentToRoot();
+    expect(adapter.getCurrentIndex()).toBe(-1);
+  });
+
+  it("emits no workspace:focused", async () => {
+    const adapter = new SwipeAdapter();
+    await adapter.open(makeDescriptor("ws-1"));
+    const events: string[] = [];
+    adapter.subscribe((e) => {
+      if (e.type === "workspace:focused") events.push(e.workspaceId);
+    });
+
+    adapter.setCurrentToRoot();
+
+    expect(events).toHaveLength(0);
+  });
+});

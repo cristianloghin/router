@@ -187,6 +187,13 @@ export type WorkspaceEvent =
   | { type: "workspace:opened";    workspace: WorkspaceDescriptor }
   | { type: "workspace:closed";    workspaceId: string }
   | { type: "workspace:focused";   workspaceId: string }
+  /**
+   * The current (in-view) workspace changed. Distinct from
+   * workspace:focused on purpose: *focused* is a navigation act (history
+   * semantics attach), *current-changed* is view state (none do) — so the
+   * swipe settle path emits this and never that. `null` = the root page.
+   */
+  | { type: "workspace:current-changed"; workspaceId: string | null; previousId: string | null }
   | { type: "workspace:updated";   workspace: WorkspaceDescriptor }
   | { type: "workspace:synced";    workspaces: WorkspaceDescriptor[] }
   | { type: "workspace:auth-failed"; workspaceId: string; rule: WorkspaceAuthRule }

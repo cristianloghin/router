@@ -1201,3 +1201,60 @@ describe("WorkspaceManager: tabs adapter never touches this tab's URL", () => {
     expect(navigate).toHaveBeenCalled();
   });
 });
+
+// ─── workspace:current-changed ────────────────────────────────────────────────
+
+describe("WorkspaceManager: workspace:current-changed", () => {
+  function collect(manager: WorkspaceManager) {
+    const seen: Array<[string | null, string | null]> = [];
+    manager.subscribe((e) => {
+      if (e.type === "workspace:current-changed") seen.push([e.previousId, e.workspaceId]);
+    });
+    return seen;
+  }
+
+  it("emits on open() with the previous current as previousId", async () => {
+    const { manager } = makeManager();
+    const seen = collect(manager);
+
+    const a = await manager.open({ template: "cam", title: "A", params: { cameraId: "c1" } });
+    const b = await manager.open({ template: "cam", title: "B", params: { cameraId: "c2" } });
+
+    expect(seen).toEqual([
+      [null, a.id],
+      [a.id, b.id],
+    ]);
+  });
+
+  it("emits on close() when auto-focus shifts the current", async () => {
+    const { manager } = makeManager();
+    const a = await manager.open({ template: "cam", title: "A", params: { cameraId: "c1" } });
+    const b = await manager.open({ template: "cam", title: "B", params: { cameraId: "c2" } });
+
+    const seen = collect(manager);
+    await manager.close(b.id);
+
+    expect(seen).toEqual([[b.id, a.id]]);
+  });
+
+  it("is a no-op when current has not moved (settle on the already-current)", async () => {
+    const { manager } = makeManager();
+    await manager.open({ template: "cam", title: "A", params: { cameraId: "c1" } });
+
+    const seen = collect(manager);
+    manager.notifyCurrentChanged();
+    manager.notifyCurrentChanged();
+
+    expect(seen).toEqual([]);
+  });
+
+  it("reports null when the last workspace closes", async () => {
+    const { manager } = makeManager();
+    const a = await manager.open({ template: "cam", title: "A", params: { cameraId: "c1" } });
+
+    const seen = collect(manager);
+    await manager.close(a.id);
+
+    expect(seen).toEqual([[a.id, null]]);
+  });
+});
