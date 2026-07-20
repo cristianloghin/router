@@ -1,5 +1,5 @@
 import type { Bus, Channel, ChannelContract } from "@mikrostack/chbus";
-import type { WorkspaceChannel } from "../types";
+import type { WorkspaceChannel, WorkspaceLifecycleContract } from "../types";
 
 // ─── WorkspaceChannelPair ─────────────────────────────────────────────────────
 
@@ -11,7 +11,8 @@ import type { WorkspaceChannel } from "../types";
  * - root: flipped perspective for the root application.
  *   root.outbound      → sends messages to the workspace
  *   root.inbound       ← receives messages from the workspace
- * - destroy: tears down both underlying chbus channels.
+ * - lifecycle: router-owned view-state channel (see below).
+ * - destroy: tears down the underlying chbus channels.
  */
 export interface WorkspaceChannelPair<
   TRootToWorkspace extends ChannelContract = ChannelContract,
@@ -22,6 +23,14 @@ export interface WorkspaceChannelPair<
     outbound: Channel<TRootToWorkspace>;
     inbound: Channel<TWorkspaceToRoot>;
   };
+  /**
+   * Router-owned `lifecycle` channel — the manager emits view_entered /
+   * view_exited here on current-change. Not part of the app-contracted
+   * root-to-ws/ws-to-root pair, and not surfaced on WorkspaceChannel;
+   * apps reach it by name off their own bus. See
+   * WorkspaceLifecycleContract.
+   */
+  lifecycle: Channel<WorkspaceLifecycleContract>;
   destroy(): void;
 }
 
@@ -76,6 +85,10 @@ export function createWorkspaceChannel<
 
   const rootToWs = ns.channel<TRootToWorkspace>("root-to-ws");
   const wsToRoot = ns.channel<TWorkspaceToRoot>("ws-to-root");
+  // Router-owned. Never bridged: bridgeEmit wraps only the app-contract pair
+  // above, so the local-only guarantee needs no guard here. (Under tabs,
+  // "view" would mean tab visibility — its own design if ever needed.)
+  const lifecycle = ns.channel<WorkspaceLifecycleContract>("lifecycle");
 
   let broadcast: BroadcastChannel | null = null;
   let exposedRootToWs = rootToWs;
@@ -109,10 +122,12 @@ export function createWorkspaceChannel<
       outbound: exposedRootToWs,
       inbound: exposedWsToRoot,
     },
+    lifecycle,
     destroy() {
       broadcast?.close();
       rootToWs.destroy();
       wsToRoot.destroy();
+      lifecycle.destroy();
     },
   };
 }

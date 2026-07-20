@@ -683,6 +683,15 @@ export class WorkspaceManager {
     if (workspaceId === previousId) return;
     this.previousCurrentId = workspaceId;
     this.emitManagerEvent({ type: "workspace:current-changed", workspaceId, previousId });
+
+    // Lifecycle edges on the router-owned per-workspace channel, exited
+    // strictly before entered so a consumer can release a resource (an
+    // WebRTC session, a decoder) before the next workspace claims one.
+    // A workspace closing has already had its channel destroyed and removed
+    // from the map, so the optional chaining is what suppresses view_exited
+    // for it — there is no listener left to care.
+    if (previousId) void this.channels.get(previousId)?.lifecycle.emit("view_exited", null);
+    if (workspaceId) void this.channels.get(workspaceId)?.lifecycle.emit("view_entered", null);
   }
 
   // ─── channel access ──────────────────────────────────────────────────────────
