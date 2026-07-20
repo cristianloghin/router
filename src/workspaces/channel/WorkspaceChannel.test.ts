@@ -302,3 +302,64 @@ describe("createWorkspaceChannel: bridged channel passthrough", () => {
     expect(channels["root-to-ws"]!.on).toHaveBeenCalledWith("focus", handler);
   });
 });
+
+// ─── lifecycle channel (router-owned) ─────────────────────────────────────────
+
+describe("createWorkspaceChannel: lifecycle channel", () => {
+  it("creates a 'lifecycle' channel alongside the app-contract pair", () => {
+    const { bus, channels } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus);
+
+    expect(Object.keys(channels).sort()).toEqual(["lifecycle", "root-to-ws", "ws-to-root"]);
+    expect(pair.lifecycle).toBe(channels["lifecycle"]);
+  });
+
+  it("keeps lifecycle off the workspace and root views", () => {
+    const { bus } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus);
+
+    // Emit-only: no typed surface on either perspective (see
+    // WorkspaceLifecycleContract). Apps reach it by name off their own bus.
+    expect(pair.workspace).not.toHaveProperty("lifecycle");
+    expect(pair.root).not.toHaveProperty("lifecycle");
+  });
+
+  it("destroys the lifecycle channel with the pair", () => {
+    const { bus, channels } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus);
+
+    pair.destroy();
+
+    expect(channels["lifecycle"]!.destroy).toHaveBeenCalledOnce();
+  });
+});
+
+describe("createWorkspaceChannel: lifecycle is never bridged cross-tab", () => {
+  beforeEach(() => {
+    MockBroadcastChannel.instances = [];
+    vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+  });
+
+  it("does not mirror lifecycle emits over BroadcastChannel", () => {
+    const { bus } = makeBus();
+    const pair = createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    const bc = MockBroadcastChannel.instances[0]!;
+
+    pair.lifecycle.emit("view_entered", null);
+
+    // Under tabs, "view" would mean tab visibility — a different design.
+    expect(bc.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores inbound lifecycle messages from other tabs", () => {
+    const { bus, channels } = makeBus();
+    createWorkspaceChannel("ws-1", bus, { crossTab: true });
+    const bc = MockBroadcastChannel.instances[0]!;
+
+    bc.onmessage?.({
+      data: { channel: "lifecycle", action: "view_entered", payload: null },
+    } as MessageEvent);
+
+    expect(channels["lifecycle"]!.emit).not.toHaveBeenCalled();
+  });
+});

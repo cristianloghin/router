@@ -116,6 +116,9 @@ export class WorkspaceManager {
   /** Listeners for manager-originated events (auth-failed, error). */
   private managerListeners = new Set<(event: WorkspaceEvent) => void>();
 
+  /** Last current workspace id observed — the baseline for transitions. */
+  private previousCurrentId: string | null = null;
+
   constructor(config: WorkspaceManagerConfig) {
     this.adapter = config.adapter;
     this.guard = config.guard;
@@ -146,6 +149,11 @@ export class WorkspaceManager {
     // Direct URL access (spec §6.2): a workspace URL loaded directly (fresh
     // tab, page reload) re-evaluates auth with isDirectAccess: true.
     this.resolveDirectAccess();
+
+    // Seed the transition baseline from whatever restore/direct-access left
+    // current. Emits to nobody (no subscribers yet) — the point is that the
+    // first real transition reports a correct previousId.
+    this.notifyCurrentChanged();
   }
 
   private onCredentialAttempt: ((input: CredentialInput, workspaceId: string) => void) | undefined;
@@ -502,6 +510,8 @@ export class WorkspaceManager {
       });
     }
 
+    this.notifyCurrentChanged();
+
     return descriptor;
   }
 
@@ -532,6 +542,8 @@ export class WorkspaceManager {
       const url = this.buildUrl(workspace);
       this._navigate(url, { navType: "workspace-open" });
     }
+
+    this.notifyCurrentChanged();
 
     return workspace;
   }
@@ -573,6 +585,9 @@ export class WorkspaceManager {
     if (this.urlBound) {
       this._navigate(origin, { navType: "workspace-close" });
     }
+
+    // Auto-focus may have shifted the current workspace to an adjacent one.
+    this.notifyCurrentChanged();
   }
 
   /** Emits workspace:error and returns a WorkspaceError(ADAPTER_ERROR) to throw. */
@@ -648,6 +663,35 @@ export class WorkspaceManager {
     for (const listener of this.managerListeners) {
       listener(event);
     }
+  }
+
+  // ─── current-change signal ───────────────────────────────────────────────────
+
+  /**
+   * Re-reads the adapter's current workspace and emits
+   * workspace:current-changed if it moved. Idempotent: a no-op when current
+   * is unchanged, so settling on the already-current workspace emits nothing.
+   *
+   * Called internally after open/focus/close, and publicly by SwipeContainer
+   * after a settle — the settle path mutates the adapter index directly
+   * (settling must not emit workspace:focused: history spam), which would
+   * otherwise leave useWorkspaces().current stale until an unrelated event.
+   */
+  notifyCurrentChanged(): void {
+    const workspaceId = this.adapter.getCurrent()?.id ?? null;
+    const previousId = this.previousCurrentId;
+    if (workspaceId === previousId) return;
+    this.previousCurrentId = workspaceId;
+    this.emitManagerEvent({ type: "workspace:current-changed", workspaceId, previousId });
+
+    // Lifecycle edges on the router-owned per-workspace channel, exited
+    // strictly before entered so a consumer can release a resource (an
+    // WebRTC session, a decoder) before the next workspace claims one.
+    // A workspace closing has already had its channel destroyed and removed
+    // from the map, so the optional chaining is what suppresses view_exited
+    // for it — there is no listener left to care.
+    if (previousId) void this.channels.get(previousId)?.lifecycle.emit("view_exited", null);
+    if (workspaceId) void this.channels.get(workspaceId)?.lifecycle.emit("view_entered", null);
   }
 
   // ─── channel access ──────────────────────────────────────────────────────────

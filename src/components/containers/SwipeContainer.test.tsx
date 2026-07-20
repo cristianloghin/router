@@ -50,6 +50,12 @@ function Opener({ title = "Feed" }: { title?: string }) {
   );
 }
 
+/** Renders the reactive current workspace — the staleness regression probe. */
+function CurrentLabel() {
+  const { current } = useWorkspaces();
+  return <div data-testid="current">{current ? current.title : "none"}</div>;
+}
+
 function Actions() {
   const { workspaces: list } = useWorkspaces();
   const { focus, close } = useWorkspaceActions();
@@ -321,6 +327,138 @@ describe("SwipeContainer: scroll→URL sync", () => {
     const track = getTrack();
     scrollTrackTo(track, 300, 100); // settle on workspace A's page
     expect(focusedEvents).toEqual([]);
+  });
+});
+
+// ─── settle → current-changed ─────────────────────────────────────────────────
+
+describe("SwipeContainer: settle updates current", () => {
+  /**
+   * Distinct params per title — open() dedupes on deep-equal params, so the
+   * shared Opener fixture (params: {}) would collapse A and B into one
+   * workspace and there would be no transition to observe.
+   */
+  function OpenDistinct({ title }: { title: string }) {
+    const { open } = useWorkspaceActions();
+    return (
+      <button
+        data-testid={`open-${title}`}
+        onClick={() => void open({ template: "cam", title, params: { cameraId: title } })}
+      >
+        Open {title}
+      </button>
+    );
+  }
+
+  /** Collects workspace:current-changed payloads as [previousId, workspaceId]. */
+  function CurrentChangedProbe({ sink }: { sink: Array<[string | null, string | null]> }) {
+    const manager = useWorkspaceManagerContext();
+    React.useEffect(
+      () =>
+        manager.subscribe((e) => {
+          if (e.type === "workspace:current-changed") {
+            sink.push([e.previousId, e.workspaceId]);
+          }
+        }),
+      [manager, sink],
+    );
+    return null;
+  }
+
+  it("settling on a workspace page updates useWorkspaces().current", async () => {
+    render(
+      <Provider>
+        <OpenDistinct title="A" />
+        <OpenDistinct title="B" />
+        <CurrentLabel />
+        <SwipeContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </SwipeContainer>
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-A"));
+      await userEvent.click(screen.getByTestId("open-B"));
+    });
+    expect(screen.getByTestId("current")).toHaveTextContent("B");
+
+    // Pages: 0 = root, 1 = A, 2 = B. Swipe back to A.
+    scrollTrackTo(getTrack(), 300, 100);
+    expect(screen.getByTestId("current")).toHaveTextContent("A");
+  });
+
+  it("settling on the root page clears current", async () => {
+    render(
+      <Provider>
+        <OpenDistinct title="A" />
+        <CurrentLabel />
+        <SwipeContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </SwipeContainer>
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-A"));
+    });
+    expect(screen.getByTestId("current")).toHaveTextContent("A");
+
+    scrollTrackTo(getTrack(), 200, 0); // settle on the root page
+    expect(screen.getByTestId("current")).toHaveTextContent("none");
+  });
+
+  it("emits workspace:current-changed carrying the previous id", async () => {
+    const seen: Array<[string | null, string | null]> = [];
+    render(
+      <Provider>
+        <OpenDistinct title="A" />
+        <OpenDistinct title="B" />
+        <CurrentChangedProbe sink={seen} />
+        <SwipeContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </SwipeContainer>
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-A"));
+      await userEvent.click(screen.getByTestId("open-B"));
+    });
+    const [aId, bId] = [seen[0]?.[1], seen[1]?.[1]];
+    expect(seen).toEqual([
+      [null, aId],
+      [aId, bId],
+    ]);
+
+    seen.length = 0;
+    scrollTrackTo(getTrack(), 300, 100); // → A
+    expect(seen).toEqual([[bId, aId]]);
+  });
+
+  it("swiping back to the page it started on emits one event per transition", async () => {
+    const seen: Array<[string | null, string | null]> = [];
+    render(
+      <Provider>
+        <OpenDistinct title="A" />
+        <OpenDistinct title="B" />
+        <CurrentChangedProbe sink={seen} />
+        <SwipeContainer>
+          <div data-testid="root-page">Dashboard</div>
+        </SwipeContainer>
+      </Provider>,
+    );
+    await act(async () => {
+      await userEvent.click(screen.getByTestId("open-A"));
+      await userEvent.click(screen.getByTestId("open-B"));
+    });
+    const [aId, bId] = [seen[0]?.[1], seen[1]?.[1]];
+
+    const track = getTrack();
+    seen.length = 0;
+    scrollTrackTo(track, 300, 100); // → A
+    scrollTrackTo(track, 300, 200); // → B
+    expect(seen).toEqual([
+      [bId, aId],
+      [aId, bId],
+    ]);
   });
 });
 

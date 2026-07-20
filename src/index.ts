@@ -61,6 +61,7 @@ export type {
   WorkspaceParams,
   WorkspaceAuthRule,
   WorkspaceChannel,
+  WorkspaceLifecycleContract,
   WorkspaceComponentProps,
   OpenWorkspaceInput,
   WorkspaceTemplateMap,

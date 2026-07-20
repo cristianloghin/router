@@ -36,6 +36,42 @@ export interface WorkspaceChannel<
   outbound: Channel<TWorkspaceToRoot>;
 }
 
+// ─── WorkspaceLifecycleContract ───────────────────────────────────────────────
+
+/**
+ * Contract for the router-owned `lifecycle` channel, one per workspace in
+ * the `workspace:{id}` namespace. The router *emits* on it; nothing in the
+ * library subscribes.
+ *
+ * "Entered/exited view" means *settled as current*, not raw visibility —
+ * mid-drag both swipe neighbours are partially visible, so settle is the
+ * boundary. Per adapter: swipe = settled index, stack = top, tabs = the
+ * focused tab.
+ *
+ * Deliberately NOT exposed on WorkspaceChannel or useWorkspaceChannel():
+ * for view state, prefer the reactive `useWorkspaces().current` (a level,
+ * which seeds correctly at mount — every open workspace is mounted at once,
+ * and the first view_entered fires before a component's subscribe effect
+ * runs). These edges exist for consumers that can't use that: code outside
+ * React, or anything needing view_exited strictly before view_entered.
+ *
+ * Because the channel lives on the app-provided `bus`, apps subscribe by
+ * name — chbus channels are get-or-create:
+ *
+ * ```ts
+ * bus.namespace(`workspace:${id}`)
+ *    .channel<WorkspaceLifecycleContract>("lifecycle")
+ *    .on("view_exited", async () => player.pause());
+ * ```
+ *
+ * The channel exists only between open() and close(); subscribe after
+ * workspace:opened and don't hold the handle across a close.
+ */
+export type WorkspaceLifecycleContract = {
+  view_entered: null;
+  view_exited: null;
+};
+
 // ─── WorkspaceComponentProps ──────────────────────────────────────────────────
 
 export interface WorkspaceComponentProps<TParams extends WorkspaceParams = WorkspaceParams> {
@@ -187,6 +223,13 @@ export type WorkspaceEvent =
   | { type: "workspace:opened";    workspace: WorkspaceDescriptor }
   | { type: "workspace:closed";    workspaceId: string }
   | { type: "workspace:focused";   workspaceId: string }
+  /**
+   * The current (in-view) workspace changed. Distinct from
+   * workspace:focused on purpose: *focused* is a navigation act (history
+   * semantics attach), *current-changed* is view state (none do) — so the
+   * swipe settle path emits this and never that. `null` = the root page.
+   */
+  | { type: "workspace:current-changed"; workspaceId: string | null; previousId: string | null }
   | { type: "workspace:updated";   workspace: WorkspaceDescriptor }
   | { type: "workspace:synced";    workspaces: WorkspaceDescriptor[] }
   | { type: "workspace:auth-failed"; workspaceId: string; rule: WorkspaceAuthRule }

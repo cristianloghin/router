@@ -29,7 +29,7 @@ Module ownership:
 | `components/RouterView.tsx` | route rendering, per-route boundaries, transitions (`startTransition` over mirrored state), loading/error fallback chain |
 | `workspaces/WorkspaceManager.ts` | workspace lifecycle, auth evaluation, **URL construction** (`buildUrl`), origins, channels, persistence |
 | `workspaces/adapters/*` | layout state only — adapters never build or touch URLs (exception: `BrowserTabAdapter` builds its own URL for `window.open`, since it can't defer to the manager's navigate) |
-| `workspaces/channel/` | per-workspace chbus channel pairs; cross-tab bridging |
+| `workspaces/channel/` | per-workspace chbus channels — the app-contract pair, the router-owned `lifecycle` channel, cross-tab bridging |
 
 ## Invariants (break these and tests will tell you)
 
@@ -49,6 +49,35 @@ Module ownership:
 - **Swipe scroll→URL sync always uses `replace`**, never push (per-swipe pushes
   are history spam). Programmatic `open`/`focus` keep push semantics. Settling
   also never emits `workspace:focused` (`SwipeAdapter.setCurrentIndex`).
+- **`workspace:current-changed` is view state; `workspace:focused` is a
+  navigation act** (history semantics attach to the latter only) — which is
+  why the settle path emits the former and never the latter.
+  `WorkspaceManager.notifyCurrentChanged()` is the single transition point:
+  called after `open`/`focus`/`close` and by `SwipeContainer` after a settle,
+  it compares the adapter's current against the last observed one and emits
+  only on a real move, so settling on the already-current workspace emits
+  nothing. Settling on the root page reports `workspaceId: null` via
+  `SwipeAdapter.setCurrentToRoot()` — distinct from `setCurrentIndex(-1)`,
+  which clamps into range: the root page is a real state, so
+  `useWorkspaces().current` is null there while the deck stays open.
+- **View state is a level, not an edge** — consumers drive "is this workspace
+  in view?" off the reactive `useWorkspaces().current`, *not* off the
+  lifecycle edges below. Both containers mount **every** open workspace at
+  once (only one is current), and the first `view_entered` is emitted inside
+  `open()` before a workspace component's subscribe effect runs — so an
+  edge-only consumer both misses its own first event and leaves off-screen
+  neighbours running.
+- **The `lifecycle` channel is router-owned and emit-only** — a third channel
+  in the `workspace:{id}` namespace on the app-provided bus carrying
+  `view_exited`/`view_entered`, emitted exited-strictly-before-entered so a
+  consumer can release a resource before the next workspace claims one.
+  Deliberately absent from `WorkspaceChannel` and `useWorkspaceChannel()`:
+  apps subscribe by name off their own bus (chbus channels are get-or-create),
+  which is why the typed surface buys nothing until a call site needs it.
+  Never bridged over the cross-tab BroadcastChannel — `bridgeEmit` wraps only
+  the app-contract pair, so the exclusion needs no guard. The channel lives
+  only between `open()` and `close()`; a closing workspace's channel is
+  destroyed *before* the current shifts, so it receives no `view_exited`.
 - **`updateParams` is a partial merge** (fixed 2026-07-14 — adapters replace,
   the manager merges) and only syncs the URL when the workspace is focused.
 - **`open()` dedupes by default (focus-or-open)**: a live workspace with the

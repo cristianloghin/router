@@ -83,8 +83,8 @@ export function SwipeContainer({
     settledPageRef.current = page;
 
     const workspaceIndex = page - rootOffset;
+    const adapter = manager.getAdapter();
     if (workspaceIndex >= 0) {
-      const adapter = manager.getAdapter();
       if (adapter instanceof SwipeAdapter) {
         // Deliberately no workspace:focused event on the scroll path.
         adapter.setCurrentIndex(workspaceIndex);
@@ -94,13 +94,21 @@ export function SwipeContainer({
         window.history.replaceState(null, "", manager.getUrl(workspace.id));
       }
     } else {
-      // Root page: restore the router's current route path, including its
-      // query string (the snapshot retains the route's search params while a
-      // workspace URL is in the address bar).
+      // Root page: no workspace is in view any more.
+      if (adapter instanceof SwipeAdapter) {
+        adapter.setCurrentToRoot();
+      }
+      // Restore the router's current route path, including its query string
+      // (the snapshot retains the route's search params while a workspace URL
+      // is in the address bar).
       const { path, searchParams } = store.getSnapshot();
       const search = searchParams.toString();
       window.history.replaceState(null, "", search ? `${path}?${search}` : path);
     }
+
+    // Settling is view state, not navigation — no workspace:focused here.
+    // This is what keeps useWorkspaces().current fresh across swipes.
+    manager.notifyCurrentChanged();
   }, [manager, store, rootOffset, pageWidthOf]);
 
   // Scrolls a workspace's page into view with scroll-snap SUSPENDED for the

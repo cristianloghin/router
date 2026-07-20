@@ -16,6 +16,7 @@ import { workspaces } from "./workspaces";
 import { NotFoundPage } from "./pages";
 import { WorkspacePanel, PingButton } from "./WorkspacePanel";
 import { authStore, useAuth } from "./authStore";
+import { bus } from "./bus";
 
 // Register the maps so every hook is fully typed without generics.
 declare module "@mikrostack/router" {
@@ -46,7 +47,13 @@ const config: AppConfig = {
 
 export function App() {
   return (
-    <AppProvider routes={routes} workspaces={workspaces} config={config} meta={{ theme: "light" }}>
+    <AppProvider
+      routes={routes}
+      workspaces={workspaces}
+      config={config}
+      meta={{ theme: "light" }}
+      bus={bus}
+    >
       <Shell />
     </AppProvider>
   );
@@ -136,6 +143,9 @@ function TopBar() {
   const { path, inWorkspace, canGoBack, isTransitioning } = useLocation();
   const { back } = useNavigation();
   const loggedIn = useAuth();
+  // Live view state. Under swipe this tracks the settled deck page — and
+  // reads "none" on the root page, where no workspace is in view.
+  const current = useWorkspaces((s) => s.current);
 
   const switchAdapter = (value: string) => {
     localStorage.setItem(ADAPTER_KEY, value);
@@ -146,6 +156,9 @@ function TopBar() {
     <header className="topbar">
       <span className="brand">@mikrostack/router</span>
       <span className="badge">{path}</span>
+      <span className="badge" data-testid="current-badge">
+        current: {current ? current.title : "none"}
+      </span>
       {inWorkspace && <span className="badge">in workspace</span>}
       {isTransitioning && <span className="badge">transitioning…</span>}
       <button onClick={back} disabled={!canGoBack}>

@@ -15,7 +15,7 @@ import { defineRoutes } from "../router/RouteRegistry";
 import { defineWorkspaces } from "../workspaces/defineWorkspaces";
 import { useWorkspaces, useWorkspaceActions, useWorkspaceChannel } from "../workspaces/hooks";
 import { StackContainer } from "../components/containers/StackContainer";
-import type { WorkspaceComponentProps } from "../workspaces/types";
+import type { WorkspaceComponentProps, WorkspaceLifecycleContract } from "../workspaces/types";
 
 // ─── Routes fixture ───────────────────────────────────────────────────────────
 
@@ -428,5 +428,143 @@ describe("workspace-channel: external bus", () => {
     await waitFor(() => {
       expect(debugMessages.some((m) => m.includes("ping"))).toBe(true);
     });
+  });
+});
+
+// ─── router-emitted lifecycle events ──────────────────────────────────────────
+
+/**
+ * Change 2 is emit-only: the library exposes no typed `lifecycle` surface, so
+ * these subscribe exactly the way an app must — by name, off the bus the app
+ * owns and passed in. chbus channels are get-or-create, so naming the same
+ * namespace + channel yields the same object the router emits on.
+ */
+describe("workspace-channel: view lifecycle events", () => {
+  const camWorkspaces = defineWorkspaces({
+    cam: { component: (() => null) as React.ComponentType<WorkspaceComponentProps> },
+  });
+
+  function lifecycleOf(bus: Bus, workspaceId: string) {
+    return bus
+      .namespace(`workspace:${workspaceId}`)
+      .channel<WorkspaceLifecycleContract>("lifecycle");
+  }
+
+  /** Subscribes to both edges of a workspace, tagging them into a shared log. */
+  function watch(bus: Bus, workspaceId: string, tag: string, log: string[]) {
+    const channel = lifecycleOf(bus, workspaceId);
+    channel.on("view_entered", async () => {
+      log.push(`${tag}:entered`);
+    });
+    channel.on("view_exited", async () => {
+      log.push(`${tag}:exited`);
+    });
+  }
+
+  function renderWithBus(bus: Bus) {
+    return renderHook(() => ({ ...useWorkspaces(), ...useWorkspaceActions() }), {
+      wrapper: ({ children }) => (
+        <AppProvider
+          routes={routes}
+          workspaces={camWorkspaces}
+          config={{ adapter: "stack" }}
+          bus={bus}
+        >
+          {children}
+        </AppProvider>
+      ),
+    });
+  }
+
+  it("emits view_entered on the workspace that becomes current", async () => {
+    const bus = createBus();
+    const log: string[] = [];
+    const { result } = renderWithBus(bus);
+
+    let id = "";
+    await act(async () => {
+      const d = await result.current.open({ template: "cam", title: "A", params: { n: 1 } });
+      id = d.id;
+    });
+    // Subscribing after open() is the documented pattern; re-focus to observe.
+    watch(bus, id, "A", log);
+
+    await act(async () => {
+      await result.current.open({ template: "cam", title: "B", params: { n: 2 } });
+    });
+    await waitFor(() => expect(log).toContain("A:exited"));
+
+    log.length = 0;
+    await act(async () => {
+      await result.current.focus(id);
+    });
+    await waitFor(() => expect(log).toEqual(["A:entered"]));
+  });
+
+  it("emits view_exited on the old workspace before view_entered on the new", async () => {
+    const bus = createBus();
+    const log: string[] = [];
+    const { result } = renderWithBus(bus);
+
+    let a = "";
+    let b = "";
+    await act(async () => {
+      a = (await result.current.open({ template: "cam", title: "A", params: { n: 1 } })).id;
+      b = (await result.current.open({ template: "cam", title: "B", params: { n: 2 } })).id;
+    });
+
+    watch(bus, a, "A", log);
+    watch(bus, b, "B", log);
+
+    await act(async () => {
+      await result.current.focus(a);
+    });
+
+    await waitFor(() => expect(log).toHaveLength(2));
+    expect(log).toEqual(["B:exited", "A:entered"]);
+  });
+
+  it("emits nothing when the current workspace does not move", async () => {
+    const bus = createBus();
+    const log: string[] = [];
+    const { result } = renderWithBus(bus);
+
+    let a = "";
+    await act(async () => {
+      a = (await result.current.open({ template: "cam", title: "A", params: { n: 1 } })).id;
+    });
+    watch(bus, a, "A", log);
+
+    // Already current — focusing it again is not a transition.
+    await act(async () => {
+      await result.current.focus(a);
+    });
+
+    expect(log).toEqual([]);
+  });
+
+  it("stops emitting once the workspace is closed", async () => {
+    const bus = createBus();
+    const log: string[] = [];
+    const { result } = renderWithBus(bus);
+
+    let a = "";
+    let b = "";
+    await act(async () => {
+      a = (await result.current.open({ template: "cam", title: "A", params: { n: 1 } })).id;
+      b = (await result.current.open({ template: "cam", title: "B", params: { n: 2 } })).id;
+    });
+    watch(bus, b, "B", log);
+
+    // Closing B destroys its channel before the current shifts to A, so the
+    // dying workspace gets no view_exited — nothing is left to listen.
+    await act(async () => {
+      await result.current.close(b);
+    });
+    await act(async () => {
+      await result.current.focus(a);
+    });
+
+    expect(log).toEqual([]);
   });
 });
