@@ -1,5 +1,6 @@
 import { buildPath, matchPath } from "./matcher";
 import { HistoryStack } from "./history";
+import { normalizeBasePath, toInternal, toExternal } from "./basePath";
 import type {
   NavigateOptions,
   NavigationEvent,
@@ -38,6 +39,8 @@ export class RouterStore {
   private state: RouterState;
   private readonly historyStack: HistoryStack;
   private readonly workspaceBasePath: string;
+  /** Normalised app-level base path; "" when the app is served from root. */
+  private readonly basePath: string;
   private listeners: Set<() => void> = new Set();
 
   // Navigation lifecycle hooks — wired by AppProvider
@@ -58,20 +61,25 @@ export class RouterStore {
   constructor(
     initialMeta: Record<string, unknown> = {},
     workspaceBasePath = "/workspace",
+    basePath = "",
   ) {
     this.workspaceBasePath = workspaceBasePath;
+    this.basePath = normalizeBasePath(basePath);
     this.historyStack = new HistoryStack();
 
     const loc = window.location;
-    const path = this.isWorkspacePath(loc.pathname) ? "/" : loc.pathname;
+    // Strip the app base before testing for the workspace prefix — the two
+    // compose in exactly one order, and isWorkspacePath takes internal paths.
+    const internalPath = this.toInternal(loc.pathname);
+    const inWorkspace = this.isWorkspacePath(internalPath);
 
     this.state = {
-      path,
+      path: inWorkspace ? "/" : internalPath,
       searchParams: new URLSearchParams(loc.search),
       isTransitioning: false,
       canGoBack: false,
       meta: initialMeta,
-      inWorkspace: this.isWorkspacePath(loc.pathname),
+      inWorkspace,
     };
 
     this.handlePopState = this.handlePopState.bind(this);
@@ -143,9 +151,9 @@ export class RouterStore {
     // Workspace URLs: update window.location but keep the router's path state unchanged.
     if (isWorkspace) {
       if (replace) {
-        window.history.replaceState(state ?? null, "", resolvedPath);
+        window.history.replaceState(state ?? null, "", this.toExternal(resolvedPath));
       } else {
-        window.history.pushState(state ?? null, "", resolvedPath);
+        window.history.pushState(state ?? null, "", this.toExternal(resolvedPath));
       }
       // Don't update router path state — workspace URL is transparent to the
       // router. Only the inWorkspace flag flips.
@@ -202,7 +210,7 @@ export class RouterStore {
     // bypassing the session stack entirely (spec §4.13) — canGoBack reflects
     // the same state it had before the workspace was opened.
     if (type === "workspace-close") {
-      window.history.replaceState(state ?? null, "", resolvedPath);
+      window.history.replaceState(state ?? null, "", this.toExternal(resolvedPath));
       this.previousPath = resolvedPath;
       this.setState({
         path: resolvedPath,
@@ -215,11 +223,11 @@ export class RouterStore {
     }
 
     if (replace) {
-      window.history.replaceState(state ?? null, "", resolvedPath);
+      window.history.replaceState(state ?? null, "", this.toExternal(resolvedPath));
       this.historyStack.replace(this.state.path);
     } else {
       this.historyStack.push(this.state.path);
-      window.history.pushState(state ?? null, "", resolvedPath);
+      window.history.pushState(state ?? null, "", this.toExternal(resolvedPath));
     }
 
     const newSearch = new URLSearchParams(window.location.search);
@@ -252,6 +260,12 @@ export class RouterStore {
 
   setSearchParams(next: URLSearchParams): void {
     const search = next.toString();
+    // Deliberately base-path-agnostic: both branches echo the address bar's
+    // own path back (a relative `?query`, or the external pathname verbatim),
+    // so there is nothing to translate. Do NOT "fix" this to
+    // toExternal(this.state.path) — while a workspace URL is current,
+    // state.path holds the retained *route* path, and that would clobber the
+    // address bar off the workspace.
     window.history.replaceState(null, "", search ? `?${search}` : window.location.pathname);
     this.setState({ searchParams: next });
   }
@@ -268,6 +282,20 @@ export class RouterStore {
     return buildPath(pattern, params);
   }
 
+  /**
+   * Strips the app base from a window.location pathname. Every path the
+   * library handles downstream of this is base-free.
+   */
+  toInternal(pathname: string): string {
+    return toInternal(pathname, this.basePath);
+  }
+
+  /** Prepends the app base to an internal path, for the address bar. */
+  toExternal(path: string): string {
+    return toExternal(path, this.basePath);
+  }
+
+  /** Takes an INTERNAL path — strip the app base before calling. */
   isWorkspacePath(pathname: string): boolean {
     return pathname === this.workspaceBasePath ||
       pathname.startsWith(this.workspaceBasePath + "/");
@@ -285,13 +313,14 @@ export class RouterStore {
 
   private handlePopState(): void {
     const loc = window.location;
-    if (this.isWorkspacePath(loc.pathname)) {
+    const internalPath = this.toInternal(loc.pathname);
+    if (this.isWorkspacePath(internalPath)) {
       this.setState({ inWorkspace: true });
       return;
     }
 
     this.setState({
-      path: loc.pathname,
+      path: internalPath,
       searchParams: new URLSearchParams(loc.search),
       canGoBack: this.historyStack.canGoBack,
       inWorkspace: false,

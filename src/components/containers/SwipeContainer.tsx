@@ -91,7 +91,9 @@ export function SwipeContainer({
       }
       const workspace = manager.getAll()[workspaceIndex];
       if (workspace) {
-        window.history.replaceState(null, "", manager.getUrl(workspace.id));
+        // getUrl() is internal (the manager builds base-free URLs); this
+        // write bypasses store.navigate(), so it must translate itself.
+        window.history.replaceState(null, "", store.toExternal(manager.getUrl(workspace.id)));
       }
     } else {
       // Root page: no workspace is in view any more.
@@ -103,7 +105,10 @@ export function SwipeContainer({
       // is in the address bar).
       const { path, searchParams } = store.getSnapshot();
       const search = searchParams.toString();
-      window.history.replaceState(null, "", search ? `${path}?${search}` : path);
+      // Translate the path, then re-attach the query — toExternal takes a
+      // path, not a path+query.
+      const external = store.toExternal(path);
+      window.history.replaceState(null, "", search ? `${external}?${search}` : external);
     }
 
     // Settling is view state, not navigation — no workspace:focused here.

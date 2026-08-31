@@ -24,11 +24,11 @@ Module ownership:
 
 | Module | Owns |
 |---|---|
-| `router/RouterContext.ts` (`RouterStore`) | URL state, history stack, popstate, guards/prompt hooks, imperative `navigate()` singleton |
+| `router/RouterContext.ts` (`RouterStore`) | URL state, history stack, popstate, guards/prompt hooks, imperative `navigate()` singleton, app base-path translation (`toInternal`/`toExternal`) |
 | `router/RouteRegistry.ts` | route map validation, parent inference, matching |
 | `components/RouterView.tsx` | route rendering, per-route boundaries, transitions (`startTransition` over mirrored state), loading/error fallback chain |
 | `workspaces/WorkspaceManager.ts` | workspace lifecycle, auth evaluation, **URL construction** (`buildUrl`), origins, channels, persistence |
-| `workspaces/adapters/*` | layout state only — adapters never build or touch URLs (exception: `BrowserTabAdapter` builds its own URL for `window.open`, since it can't defer to the manager's navigate) |
+| `workspaces/adapters/*` | layout state only — adapters never build or touch URLs (exception: `BrowserTabAdapter` builds its own URL for `window.open`, since it can't defer to the manager's navigate — and so is also the one adapter that applies the app base itself) |
 | `workspaces/channel/` | per-workspace chbus channels — the app-contract pair, the router-owned `lifecycle` channel, cross-tab bridging |
 
 ## Invariants (break these and tests will tell you)
@@ -93,6 +93,30 @@ Module ownership:
   checks: a match creates nothing, so `maxInstances`/`maxWorkspaces` don't
   apply to it. Consequence: **params are identity** — view-state must not
   creep into param schemas or dedup silently mismatches.
+- **Every path inside the library is base-free.** With `config.basePath` set
+  (app served from a sub-path), route keys, `matchPath`/`buildPath`,
+  `HistoryStack` entries, workspace origins, persisted state,
+  `WorkspaceManager.buildUrl()` output and every path on `RouterState` are all
+  *internal* — absolute from `/`, no base. The base exists only in the address
+  bar: `toExternal` is applied at the `pushState`/`replaceState`/`window.open`
+  URL argument and nowhere else, `toInternal` at every
+  `window.location.pathname` read and nowhere else. `toInternal` passes a
+  pathname outside the base through unchanged (the app isn't mounted there);
+  a mid-segment prefix like `/PlannerX` under base `/Planner` is not stripped.
+- **`isWorkspacePath` takes internal paths only** — the app base and the
+  workspace prefix compose in exactly one order: strip the base, *then* test.
+  Its call sites split accordingly: `RouterContext`'s constructor, its
+  popstate handler and `AppProvider`'s route-guard `makeContext` all strip
+  first; the call inside `navigate()` receives an already-internal
+  `resolvedPath` and must not. Two sites look like they need translating and
+  deliberately don't: that `navigate()` call, and `setSearchParams`, which
+  echoes the address bar's own path back to clear the query string —
+  rewriting it to `toExternal(state.path)` would clobber the bar off a
+  workspace, since `state.path` holds the retained *route* path there.
+- **`Link` carries both forms of one path** — the anchor's `href` is external
+  (middle-click, "copy link address" and hover preview read a real URL), the
+  `store.navigate()` call on click is internal. Translating once and reusing
+  it double-applies the base.
 - **`RouterStore` lives in a ref but is destroyed in an effect cleanup** — so
   `destroy()` must stay reversible (`attach()` re-registers popstate) or
   StrictMode's simulated unmount permanently deafens the router. Regression
