@@ -24,11 +24,11 @@ Module ownership:
 
 | Module | Owns |
 |---|---|
-| `router/RouterContext.ts` (`RouterStore`) | URL state, history stack, popstate, guards/prompt hooks, imperative `navigate()` singleton |
+| `router/RouterContext.ts` (`RouterStore`) | URL state, history stack, popstate, guards/prompt hooks, imperative `navigate()` singleton, app base-path translation (`toInternal`/`toExternal`) |
 | `router/RouteRegistry.ts` | route map validation, parent inference, matching |
 | `components/RouterView.tsx` | route rendering, per-route boundaries, transitions (`startTransition` over mirrored state), loading/error fallback chain |
 | `workspaces/WorkspaceManager.ts` | workspace lifecycle, auth evaluation, **URL construction** (`buildUrl`), origins, channels, persistence |
-| `workspaces/adapters/*` | layout state only — adapters never build or touch URLs (exception: `BrowserTabAdapter` builds its own URL for `window.open`, since it can't defer to the manager's navigate) |
+| `workspaces/adapters/*` | layout state only — adapters never build or touch URLs (exception: `BrowserTabAdapter` builds its own URL for `window.open`, since it can't defer to the manager's navigate — and so is also the one adapter that applies the app base itself) |
 | `workspaces/channel/` | per-workspace chbus channels — the app-contract pair, the router-owned `lifecycle` channel, cross-tab bridging |
 
 ## Invariants (break these and tests will tell you)
@@ -93,6 +93,30 @@ Module ownership:
   checks: a match creates nothing, so `maxInstances`/`maxWorkspaces` don't
   apply to it. Consequence: **params are identity** — view-state must not
   creep into param schemas or dedup silently mismatches.
+- **Every path inside the library is base-free.** With `config.basePath` set
+  (app served from a sub-path), route keys, `matchPath`/`buildPath`,
+  `HistoryStack` entries, workspace origins, persisted state,
+  `WorkspaceManager.buildUrl()` output and every path on `RouterState` are all
+  *internal* — absolute from `/`, no base. The base exists only in the address
+  bar: `toExternal` is applied at the `pushState`/`replaceState`/`window.open`
+  URL argument and nowhere else, `toInternal` at every
+  `window.location.pathname` read and nowhere else. `toInternal` passes a
+  pathname outside the base through unchanged (the app isn't mounted there);
+  a mid-segment prefix like `/PlannerX` under base `/Planner` is not stripped.
+- **`isWorkspacePath` takes internal paths only** — the app base and the
+  workspace prefix compose in exactly one order: strip the base, *then* test.
+  Its call sites split accordingly: `RouterContext`'s constructor, its
+  popstate handler and `AppProvider`'s route-guard `makeContext` all strip
+  first; the call inside `navigate()` receives an already-internal
+  `resolvedPath` and must not. Two sites look like they need translating and
+  deliberately don't: that `navigate()` call, and `setSearchParams`, which
+  echoes the address bar's own path back to clear the query string —
+  rewriting it to `toExternal(state.path)` would clobber the bar off a
+  workspace, since `state.path` holds the retained *route* path there.
+- **`Link` carries both forms of one path** — the anchor's `href` is external
+  (middle-click, "copy link address" and hover preview read a real URL), the
+  `store.navigate()` call on click is internal. Translating once and reusing
+  it double-applies the base.
 - **`RouterStore` lives in a ref but is destroyed in an effect cleanup** — so
   `destroy()` must stay reversible (`attach()` re-registers popstate) or
   StrictMode's simulated unmount permanently deafens the router. Regression
@@ -151,69 +175,7 @@ Module ownership:
 Design agreed before code, per house rules. Delete each entry when it ships;
 move any surviving invariants up into the sections above.
 
-### App-level `basePath` (deploying under a URL sub-path)
-
-**Motivation:** an app served from `https://host/Planner/` cannot route at all
-today — every route key is absolute from `/`, so the browser's `/Planner/day`
-is matched against the route table verbatim and misses. `workspaceBasePath` is
-unrelated: it names the `/workspace/...` segment *inside* the app, not the
-mount point of the app itself.
-
-- New `config.basePath` (default `""`), alongside `workspaceBasePath` in
-  `AppConfig`. Normalised once at construction: leading slash required,
-  trailing slash stripped; `""` and `"/"` both mean "no base" and
-  short-circuit both helpers to identity.
-- **One pair of pure helpers owns the whole translation.**
-  `toInternal(pathname)` strips the base, `toExternal(path)` prepends it.
-  `toInternal` passes a non-matching pathname through unchanged (the app
-  isn't mounted there), `toInternal("/Planner")` → `"/"`, `toExternal("/")` →
-  `"/Planner"` with no trailing slash. They live in their own module and are
-  exposed as `RouterStore` methods; `WorkspaceManager` and `BrowserTabAdapter`
-  receive the normalised base through config exactly as they already receive
-  `workspaceBasePath`, so this adds no dependency edge onto the store.
-- **New invariant: every path inside the library is base-free.** Route keys,
-  `matchPath`/`buildPath`, `historyStack` entries, workspace origins,
-  persisted state, `WorkspaceManager.buildUrl()` output and every path on
-  `RouterState` are all internal. The base exists only in the address bar:
-  `toExternal` is applied at the `pushState`/`replaceState`/`window.open` URL
-  argument and nowhere else, `toInternal` at every `window.location.pathname`
-  read and nowhere else.
-- **New invariant: `isWorkspacePath` takes internal paths only.** The two
-  prefixes compose in exactly one order — strip the app base, *then* test for
-  the workspace prefix. Four of its five call sites pass raw
-  `window.location.pathname` today and must strip first (`RouterContext` 66,
-  74 and 288; `AppProvider` 218, inside the route guard's `makeContext`); the
-  fifth, `RouterContext` 119, already passes an internal `resolvedPath`.
-- Workspace URLs pick the base up for free — `buildUrl()`'s output reaches the
-  address bar through `store.navigate()`, so it passes through the same
-  `toExternal`. The sites needing explicit treatment are exactly those that
-  bypass `store.navigate()`: `SwipeContainer` 94 **and** 106 (both branches of
-  the settle handler, not only the root one) and `BrowserTabAdapter` 39 — the
-  same `window.open` exception already carved out for URL-building in the
-  ownership table above.
-- `Link` needs both forms of one path, not a translation: the anchor's `href`
-  must be external so middle-click and hover-preview show a real URL, while
-  the `store.navigate()` call on click stays internal. Derive the external
-  form at the point of use rather than reassigning the existing `href` local.
-- **Leave alone — two sites that look like they need this and don't.**
-  `RouterContext` 119 tests an already-internal `resolvedPath`. `RouterContext`
-  255 echoes `window.location.pathname` back to clear the query string, which
-  is a path no-op and therefore already correct under a base; rewriting it to
-  `toExternal(state.path)` would be a regression, since while a workspace URL
-  is current `state.path` holds the retained *route* path and the address bar
-  would jump off the workspace.
-- **Rejected: sourcing the base from `<base href>` or a build-time env var.**
-  The base is the app's to declare and tests must set it per case; a DOM or
-  build-time source is invisible to one or the other.
-- **Rejected: normalising inside `matchPath`.** Translating at the two window
-  boundaries keeps the base out of the matcher, the registry and persisted
-  state, so redeploying under a different sub-path does not invalidate stored
-  origins.
-- Existing tests are unaffected (`basePath` defaults to `""`, which is
-  identity). New coverage: strip/prepend round-trips, the strip-then-test
-  ordering against a workspace URL, `Link`'s two forms, and a swipe settle on
-  both branches under a base.
-- Out of scope: hash routing, and changing `basePath` at runtime.
+Nothing specced right now.
 
 ## Known quirks / gaps (candidates for future work)
 

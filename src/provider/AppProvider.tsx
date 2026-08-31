@@ -44,6 +44,13 @@ export interface AppConfig {
    */
   persist?: { version: number };
   workspaceBasePath?: string;
+  /**
+   * Sub-path the whole app is served from, e.g. "/Planner" for an app at
+   * https://host/Planner/. Stripped when reading the URL and prepended when
+   * writing it, so route keys stay absolute from "/" regardless of where the
+   * app is mounted. Default: "" (served from the domain root).
+   */
+  basePath?: string;
   defaultLoading?: React.ComponentType | React.ReactNode;
   defaultError?: React.ComponentType<RouteErrorProps>;
   auth?: {
@@ -102,10 +109,14 @@ function CredentialDialogHost({
 
 // ─── Adapter factory ──────────────────────────────────────────────────────────
 
-function createAdapter(type: "auto" | "stack" | "swipe" | "tabs" = "auto"): WorkspaceAdapter {
+function createAdapter(
+  type: "auto" | "stack" | "swipe" | "tabs" = "auto",
+  workspaceBasePath = "/workspace",
+  basePath = "",
+): WorkspaceAdapter {
   switch (type) {
     case "tabs":
-      return new BrowserTabAdapter();
+      return new BrowserTabAdapter(workspaceBasePath, basePath);
     case "swipe":
       return new SwipeAdapter();
     case "stack":
@@ -142,14 +153,19 @@ export function AppProvider<
 
   // Initialise once on mount
   if (!storeRef.current) {
-    const basePath = config.workspaceBasePath ?? "/workspace";
+    const workspaceBasePath = config.workspaceBasePath ?? "/workspace";
+    const appBasePath = config.basePath ?? "";
 
-    storeRef.current = new RouterStore(meta as Record<string, unknown>, basePath);
+    storeRef.current = new RouterStore(
+      meta as Record<string, unknown>,
+      workspaceBasePath,
+      appBasePath,
+    );
     registryRef.current = new RouteRegistry(routes as RouteMap);
 
     busRef.current = externalBus ?? createBus();
 
-    const adapter = createAdapter(config.adapter);
+    const adapter = createAdapter(config.adapter, workspaceBasePath, appBasePath);
 
     // Built-in credential dialog bridge (spec §6.2): the guard asks, the
     // CredentialDialogHost below renders the form, the user answers.
@@ -187,7 +203,8 @@ export function AppProvider<
       navigate,
       bus: busRef.current,
       templates: workspaces as unknown as WorkspaceTemplateMap,
-      workspaceBasePath: basePath,
+      workspaceBasePath,
+      basePath: appBasePath,
       getCurrentPath: () => store.getSnapshot().path,
       ...(onCredentialAttempt !== undefined ? { onCredentialAttempt } : {}),
       ...(config.maxWorkspaces !== undefined ? { maxWorkspaces: config.maxWorkspaces } : {}),
@@ -215,7 +232,8 @@ export function AppProvider<
           path: snap.path,
           params: leaf ? matchPath(leaf, snap.path).params : {},
           searchParams: snap.searchParams,
-          inWorkspace: store.isWorkspacePath(window.location.pathname),
+          // Strip the app base before testing the workspace prefix.
+          inWorkspace: store.isWorkspacePath(store.toInternal(window.location.pathname)),
           currentWorkspace: manager.getCurrent(),
         };
       };

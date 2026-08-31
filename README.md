@@ -17,6 +17,7 @@ A React library that unifies browser routing and **workspace** navigation — in
   - [Wildcard routes](#wildcard-routes)
   - [Lazy components](#lazy-components)
   - [Error boundaries](#error-boundaries)
+  - [Serving from a sub-path](#serving-from-a-sub-path)
   - [Route guards](#route-guards)
   - [notFound()](#notfound)
 - [Router hooks](#router-hooks)
@@ -167,7 +168,8 @@ The single root provider. Must wrap your entire application.
 | `defaultLoading` | `React.ComponentType \| React.ReactNode` | `null` | Fallback shown during route/lazy load suspense |
 | `defaultError` | `React.ComponentType<RouteErrorProps>` | Built-in | Fallback shown when a route throws |
 | `auth.isAuthenticated` | `() => boolean \| Promise<boolean>` | `() => false` | Used by `authenticated` workspace auth rules |
-| `workspaceBasePath` | `string` | `"/workspace"` | URL prefix for workspace paths |
+| `basePath` | `string` | `""` | Sub-path the whole app is served from, e.g. `"/Planner"`. Stripped when reading the URL and prepended when writing it, so route keys stay absolute from `/`. See [Serving from a sub-path](#serving-from-a-sub-path). |
+| `workspaceBasePath` | `string` | `"/workspace"` | URL prefix for workspace paths, *within* the app (composes under `basePath`) |
 | `onNavigate` | `(event: NavigationEvent) => void` | — | Called after every navigation |
 | `onBeforeNavigate` | `(event & { cancel }) => void` | — | Called before navigation; call `cancel()` to block navigation |
 
@@ -299,6 +301,43 @@ defineRoutes({
 ```
 
 The error fallback resolution order: route `error` → `AppProvider` `defaultError` → built-in minimal display.
+
+### Serving from a sub-path
+
+Apps deployed somewhere other than the domain root — `https://example.com/Planner/`
+rather than `https://example.com/` — set `basePath`:
+
+```tsx
+<AppProvider routes={routes} config={{ basePath: "/Planner" }}>
+```
+
+Route keys stay absolute from `/` regardless of where the app is mounted, so
+nothing else in your app changes:
+
+```tsx
+const routes = defineRoutes({
+  "/": { component: Dashboard },   // → https://example.com/Planner
+  "/day": { component: DayView },  // → https://example.com/Planner/day
+});
+
+navigate("/day");                  // still "/day", not "/Planner/day"
+<Link to="/day">Day</Link>         // renders href="/Planner/day"
+```
+
+The base is stripped when the router reads the URL and prepended when it
+writes it, so every path you pass to `navigate()`, `Link`, `useParams()` or a
+route key is base-free. `<Link>` still renders a real URL in `href`, so
+middle-click, "copy link address" and the browser's hover preview all work.
+
+`workspaceBasePath` composes underneath it — with both defaults in play a
+workspace URL is `https://example.com/Planner/workspace/{template}/{id}`.
+
+Trailing slashes are normalised (`"/Planner/"` and `"/Planner"` are the same),
+and `""` or `"/"` mean "served from the root" — the default.
+
+> Your server must rewrite unknown paths under the base to the app's
+> `index.html`, exactly as it would at the root. `basePath` handles the
+> client-side half only.
 
 ### Route guards
 

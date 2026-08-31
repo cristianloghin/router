@@ -14,6 +14,7 @@ import { createDescriptor } from "./defineWorkspaces";
 import { createWorkspaceChannel } from "./channel/WorkspaceChannel";
 import type { WorkspaceChannelPair } from "./channel/WorkspaceChannel";
 import { serialize, paramsToRecord } from "../utils/params";
+import { normalizeBasePath, toInternal } from "../router/basePath";
 import type { ParamSchema } from "../utils/params";
 import type { CredentialInput } from "./types";
 
@@ -59,6 +60,12 @@ export interface WorkspaceManagerConfig {
   bus: Bus;
   templates: WorkspaceTemplateMap;
   workspaceBasePath?: string;
+  /**
+   * App-level base path — the sub-path the whole app is served from. Only
+   * used to strip window.location reads; every URL this manager builds is
+   * internal (base-free) and gets translated at the address-bar boundary.
+   */
+  basePath?: string;
   /** Maximum total open workspaces across all templates. Default: 10 (spec §3). */
   maxWorkspaces?: number;
   /**
@@ -101,6 +108,8 @@ export class WorkspaceManager {
   readonly bus: Bus;
   private templates: WorkspaceTemplateMap;
   private basePath: string;
+  /** Normalised app-level base path; "" when the app is served from root. */
+  private appBasePath: string;
   private maxWorkspaces: number;
   private getCurrentPath: () => string;
 
@@ -126,10 +135,14 @@ export class WorkspaceManager {
     this.bus = config.bus;
     this.templates = config.templates;
     this.basePath = config.workspaceBasePath ?? "/workspace";
+    this.appBasePath = normalizeBasePath(config.basePath);
     this.maxWorkspaces = config.maxWorkspaces ?? 10;
     this.getCurrentPath =
       config.getCurrentPath ??
-      (() => (typeof window !== "undefined" ? window.location.pathname : "/"));
+      (() =>
+        typeof window !== "undefined"
+          ? toInternal(window.location.pathname, this.appBasePath)
+          : "/");
     this.onCredentialAttempt = config.onCredentialAttempt;
     if (config.persist && !Number.isFinite(config.persist.version)) {
       // Guards dynamically-built configs (plain JS) from silently producing
@@ -211,7 +224,9 @@ export class WorkspaceManager {
    * the location is not a workspace URL or the template is unknown.
    */
   private descriptorFromLocation(): WorkspaceDescriptor | null {
-    const { pathname, search } = window.location;
+    const { pathname: rawPathname, search } = window.location;
+    // Strip the app base before testing the workspace prefix.
+    const pathname = toInternal(rawPathname, this.appBasePath);
     if (!pathname.startsWith(this.basePath + "/")) return null;
 
     const [templateKey, id] = pathname.slice(this.basePath.length + 1).split("/");

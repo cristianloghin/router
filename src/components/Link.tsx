@@ -75,7 +75,12 @@ export function Link<TPath extends RoutePath = RoutePath>(
     () => store.getSnapshot().path,
   );
 
-  const href = buildPath(to, params);
+  // Two forms of one path. `path` is internal — it feeds matching and
+  // store.navigate(), both of which work in the base-free domain. `href` is
+  // external, because the anchor's href is a real URL: middle-click, "copy
+  // link address" and the browser's hover preview all read it directly.
+  const path = buildPath(to, params);
+  const href = store.toExternal(path);
 
   // Determine active state
   const { matched } = matchPath(to, currentPath);
@@ -108,7 +113,7 @@ export function Link<TPath extends RoutePath = RoutePath>(
     // Pass through modifier-key clicks (new tab, etc.)
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    store.navigate(href, { replace, ...(state !== undefined ? { state } : {}) });
+    store.navigate(path, { replace, ...(state !== undefined ? { state } : {}) });
   };
 
   return (

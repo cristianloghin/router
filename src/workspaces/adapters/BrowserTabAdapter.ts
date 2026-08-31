@@ -4,6 +4,7 @@ import type {
   WorkspaceEvent,
   WorkspaceParams,
 } from "../types";
+import { normalizeBasePath, toInternal, toExternal } from "../../router/basePath";
 
 // BroadcastChannel message shapes
 type BcMessage =
@@ -23,9 +24,12 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
   private listeners: Set<(event: WorkspaceEvent) => void> = new Set();
   private bc: BroadcastChannel | null = null;
   private workspaceBasePath: string;
+  /** Normalised app-level base path; "" when the app is served from root. */
+  private basePath: string;
 
-  constructor(workspaceBasePath = "/workspace") {
+  constructor(workspaceBasePath = "/workspace", basePath = "") {
     this.workspaceBasePath = workspaceBasePath;
+    this.basePath = normalizeBasePath(basePath);
     this.initBroadcastChannel();
     this.syncCurrentFromUrl();
   }
@@ -35,7 +39,10 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
     // (direct URL access — the manager reconstructs the descriptor from the
     // URL on boot), opening another tab would loop popups forever.
     if (this.currentIdFromUrl() !== descriptor.id) {
-      const url = this.buildUrl(descriptor);
+      // buildUrl() is internal; window.open takes a real URL, so this is one
+      // of the few sites that must translate (it cannot defer to the
+      // manager's navigate — see the ownership table in DEV.md).
+      const url = toExternal(this.buildUrl(descriptor), this.basePath);
       window.open(url, "_blank");
     }
     this.workspaces.push(descriptor);
@@ -91,7 +98,8 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
 
   /** The workspace id in this tab's URL, or null when not a workspace URL. */
   private currentIdFromUrl(): string | null {
-    const pathname = window.location.pathname;
+    // Strip the app base first — the workspace prefix is an internal one.
+    const pathname = toInternal(window.location.pathname, this.basePath);
     const prefix = this.workspaceBasePath + "/";
     if (!pathname.startsWith(prefix)) return null;
 
