@@ -2,7 +2,9 @@
 
 Internal reference for developing `@mikrostack/router`. User-facing docs live in
 [README.md](README.md). This file records what the code can't: design decisions,
-invariants, known quirks, and workflows.
+invariants, known quirks, and workflows. Planned work (parity gaps found during
+the vms-frontend adoption assessment, plus proposed features) is tracked in
+[ROADMAP.md](ROADMAP.md).
 
 > Historical note: the library was originally built against a full written spec
 > (`WORKSPACE_ROUTER_SPEC.md`) and a pre-adoption change plan. Both were fully
