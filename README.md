@@ -203,6 +203,10 @@ Type-safe navigation link. Supports all standard anchor attributes.
 <Link href="https://example.com">External</Link>
 ```
 
+The `href` escape hatch renders whatever you give it, with one exception:
+`javascript:` and `data:` URLs are dropped and the anchor renders without an
+`href`. React only warns about those; they still execute on click.
+
 ### Nested routes
 
 Parent–child relationships are inferred from path prefixes. A parent route receives its matched child as the `outlet` prop.
@@ -417,7 +421,7 @@ function MyComponent() {
 |---|---|---|
 | `navigate` | `(to: string, options?) => void` | Push or replace the current URL |
 | `back` | `() => void` | Go to the previous history entry |
-| `buildPath` | `(pattern: string, params?) => string` | Interpolate a path pattern with params |
+| `buildPath` | `(pattern: string, params?) => string` | Interpolate a path pattern with params (values are URL-encoded) |
 
 **`navigate` options:**
 
@@ -611,6 +615,11 @@ navigate("/users/:id", { params: { id: "42" } });
 navigate("/search?q=router");                      // query string on the target
 navigate("/camera/:id?live=1", { params: { id: "42" } });
 ```
+
+Interpolated params are URL-encoded, so a value containing `/`, `?` or `#`
+stays one path segment instead of restructuring the URL — an id of `1/edit`
+becomes `1%2Fedit`. `useParams()` decodes on the way back, so it reports the
+value you passed in. The same applies to workspace URLs.
 
 > `navigate` is a no-op until an `AppProvider` has mounted.
 

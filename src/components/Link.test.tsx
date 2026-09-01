@@ -296,3 +296,82 @@ describe("Link: query strings on `to`", () => {
     expect(screen.getByTestId("loc")).toHaveTextContent("/settings|tab=general");
   });
 });
+
+// ─── S5: dangerous schemes in the href escape hatch ──────────────────────────
+
+/**
+ * Security hardening S5. `<Link href>` renders its href verbatim; React warns
+ * about a `javascript:` URL but does not block it, so it executes on click.
+ */
+describe("Link: dangerous href schemes", () => {
+  // Queried by text, not by role: an anchor with no href is not a `link` in
+  // the accessibility tree — which is itself part of the fix.
+  function hrefOf(name: string) {
+    return screen.getByText(name).getAttribute("href");
+  }
+
+  it("drops a javascript: href", () => {
+    render(
+      <Link href="javascript:alert(1)">Bad</Link>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    expect(hrefOf("Bad")).toBeNull();
+  });
+
+  it("drops a data: href", () => {
+    render(
+      <Link href="data:text/html,<script>alert(1)</script>">Bad</Link>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    expect(hrefOf("Bad")).toBeNull();
+  });
+
+  it("is case-insensitive", () => {
+    render(
+      <Link href="JaVaScRiPt:alert(1)">Bad</Link>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    expect(hrefOf("Bad")).toBeNull();
+  });
+
+  it("sees through leading whitespace and control characters", () => {
+    render(
+      <>
+        <Link href="   javascript:alert(1)">Spaced</Link>
+        <Link href={"java\nscript:alert(1)"}>Split</Link>
+        <Link href={"\tjavascript:alert(1)"}>Tabbed</Link>
+      </>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    expect(hrefOf("Spaced")).toBeNull();
+    expect(hrefOf("Split")).toBeNull();
+    expect(hrefOf("Tabbed")).toBeNull();
+  });
+
+  it("still renders the anchor and its children", () => {
+    render(
+      <Link href="javascript:alert(1)" className="x">Bad</Link>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    const a = screen.getByText("Bad");
+    expect(a.tagName).toBe("A");
+    expect(a).toHaveClass("x");
+  });
+
+  it("leaves ordinary hrefs alone", () => {
+    render(
+      <>
+        <Link href="https://example.com/x">Ext</Link>
+        <Link href="/local/path">Loc</Link>
+        <Link href="mailto:a@b.c">Mail</Link>
+        <Link href="/search?q=data:text">Query</Link>
+      </>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    expect(hrefOf("Ext")).toBe("https://example.com/x");
+    expect(hrefOf("Loc")).toBe("/local/path");
+    expect(hrefOf("Mail")).toBe("mailto:a@b.c");
+    // "data:" appears, but not as the scheme.
+    expect(hrefOf("Query")).toBe("/search?q=data:text");
+  });
+});

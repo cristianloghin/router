@@ -43,6 +43,13 @@ export function Link<TPath extends RoutePath = RoutePath>(
   // All other anchor attributes (onClick, target, data-*, aria-*) pass through.
   if ("href" in props && props.href !== undefined) {
     const { href, children, to: _to, ...anchorProps } = props;
+    // The escape hatch renders href verbatim, so a `javascript:` URL executes
+    // on click — React warns about it but does not block it. Drop the
+    // attribute rather than hand the browser an executable URL: the anchor
+    // still renders, it just goes nowhere.
+    if (isDangerousHref(href)) {
+      return <a {...anchorProps}>{children}</a>;
+    }
     return (
       <a href={href} {...anchorProps}>
         {children}
@@ -133,6 +140,20 @@ export function Link<TPath extends RoutePath = RoutePath>(
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * True for hrefs whose scheme executes rather than navigates.
+ *
+ * Tested against a normalised copy: browsers ignore leading whitespace and
+ * strip TAB/LF/CR from *inside* a scheme, so "java\nscript:alert(1)" runs
+ * just as well as the plain form. Stripping every C0 control and space before
+ * the prefix test closes both. Only the prefix is examined, so a legitimate
+ * URL that happens to contain "data:" later on is unaffected.
+ */
+function isDangerousHref(href: string): boolean {
+  const normalized = href.replace(/[\u0000-\u0020]/g, "").toLowerCase();
+  return normalized.startsWith("javascript:") || normalized.startsWith("data:");
+}
 
 function isSegmentAncestor(pattern: string, currentPath: string): boolean {
   if (pattern === "/") return currentPath !== "/" && currentPath.startsWith("/");

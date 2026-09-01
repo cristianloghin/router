@@ -225,29 +225,6 @@ gating, not security**. `time-limited` runs on the client clock,
 flippable from devtools. Real resources (streams, APIs) must be authorized
 server-side per request. This now says so in README's auth section (S3).
 
-### S4. URI-encode interpolated URL parts
-
-`buildPath` substitutes params raw, and workspace URLs interpolate
-`template`/`id` raw (`WorkspaceManager.buildUrl`, `BrowserTabAdapter`). A
-value containing `/`, `?`, or `#` restructures the URL — id `1/edit`
-navigates elsewhere, `x?admin=true` injects query params. Not a guard bypass
-(guards run on the resolved path) and scheme position is unreachable
-(patterns are `/`-rooted), but `encodeURIComponent` on substituted values
-closes it.
-
-### S5. Block dangerous schemes in the Link href escape hatch
-
-`<Link href>` renders the href verbatim; a `javascript:` URL executes on
-click (React warns, doesn't block). Reject `javascript:`/`data:` schemes in
-the escape-hatch branch. (`Link.tsx`)
-
-### S6. Null-guard BroadcastChannel messages
-
-`BrowserTabAdapter`'s `onmessage` reads `msg.type` without a null/shape
-guard — a malformed same-origin message throws in the handler.
-`WorkspaceChannel` already guards; mirror it. Robustness only
-(BroadcastChannel is same-origin).
-
 ### S7. CI tightening
 
 Publish workflow is well-gated (push-to-main only, after tests, OIDC; fork
@@ -269,7 +246,5 @@ job only.
 5. Scoped modules (B), priming (C), view transitions (D) — pay off as more
    sections adopt; none block anything.
 
-Security items are order-independent of the above and individually small.
-S1–S3 have shipped (auth is re-evaluated on restore, `credential` fails closed
-with no credential source, and README carries the client-side-gating caveat);
-S4–S7 remain, to be taken opportunistically.
+Security items are order-independent of the above. S1–S6 have shipped; only
+S7 (CI pinning) is left, and it is hygiene rather than correctness.

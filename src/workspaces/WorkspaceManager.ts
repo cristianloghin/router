@@ -15,6 +15,7 @@ import { createWorkspaceChannel } from "./channel/WorkspaceChannel";
 import type { WorkspaceChannelPair } from "./channel/WorkspaceChannel";
 import { serialize, paramsToRecord } from "../utils/params";
 import { normalizeBasePath, toInternal } from "../router/basePath";
+import { decodeSegment } from "../router/matcher";
 import type { ParamSchema } from "../utils/params";
 import type { CredentialInput } from "./types";
 
@@ -283,8 +284,10 @@ export class WorkspaceManager {
     const pathname = toInternal(rawPathname, this.appBasePath);
     if (!pathname.startsWith(this.basePath + "/")) return null;
 
-    const [templateKey, id] = pathname.slice(this.basePath.length + 1).split("/");
-    if (!templateKey || !id) return null;
+    const [rawTemplateKey, rawId] = pathname.slice(this.basePath.length + 1).split("/");
+    if (!rawTemplateKey || !rawId) return null;
+    const templateKey = decodeSegment(rawTemplateKey);
+    const id = decodeSegment(rawId);
     const template = this.templates[templateKey];
     if (!template) return null;
 
@@ -822,6 +825,9 @@ export class WorkspaceManager {
       }
     }
 
-    return `${this.basePath}/${descriptor.template}/${descriptor.id}?${searchParams.toString()}`;
+    // Template and id are encoded for the same reason buildPath encodes route
+    // params: an id containing "/", "?" or "#" would otherwise restructure the
+    // URL. descriptorFromLocation decodes them back out.
+    return `${this.basePath}/${encodeURIComponent(descriptor.template)}/${encodeURIComponent(descriptor.id)}?${searchParams.toString()}`;
   }
 }

@@ -12,6 +12,24 @@ function splitPath(p: string): string[] {
   return p.slice(1).split("/");
 }
 
+// ─── segment encoding ─────────────────────────────────────────────────────────
+
+/**
+ * Decodes one path segment, falling back to the raw text when it is not valid
+ * percent-encoding — `decodeURIComponent` throws on e.g. "100%".
+ *
+ * The counterpart to the `encodeURIComponent` in `buildPath`: values go into
+ * a URL encoded so they cannot restructure it, and come back out decoded so
+ * `useParams()` sees what was put in.
+ */
+export function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 // ─── matchPath ────────────────────────────────────────────────────────────────
 
 export function matchPath(
@@ -34,12 +52,17 @@ export function matchPath(
       const v = pathParts[i]!;
       if (p.startsWith(":")) {
         if (!v) return noMatch;
-        params[p.slice(1)] = v;
+        params[p.slice(1)] = decodeSegment(v);
       } else if (p !== v) {
         return noMatch;
       }
     }
-    params["*"] = pathParts.slice(staticParts.length).join("/");
+    // Decoded per segment, then rejoined: the separators are structure, the
+    // segments are values.
+    params["*"] = pathParts
+      .slice(staticParts.length)
+      .map(decodeSegment)
+      .join("/");
     return { matched: true, params };
   }
 
@@ -53,7 +76,7 @@ export function matchPath(
     if (p.startsWith(":")) {
       // Empty segment (e.g. trailing slash) must not match a param slot.
       if (!v) return noMatch;
-      params[p.slice(1)] = v;
+      params[p.slice(1)] = decodeSegment(v);
     } else if (p !== v) {
       return noMatch;
     }
@@ -85,7 +108,13 @@ export function pathnameOf(to: string): string {
 
 export function buildPath(pattern: string, params: Record<string, string>): string {
   return pattern.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, key: string) => {
-    return params[key] ?? `:${key}`;
+    const value = params[key];
+    if (value === undefined) return `:${key}`;
+    // Encoded so a value cannot restructure the URL it is substituted into:
+    // an id of "1/edit" is one segment, not two, and "x?admin=true" cannot
+    // graft on a query string. matchPath decodes on the way back out, so
+    // useParams() still reports the original value.
+    return encodeURIComponent(value);
   });
 }
 

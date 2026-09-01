@@ -141,6 +141,21 @@ Module ownership:
   the bar is then authoritative whether the query arrived on the target or was
   already there. `Link` splits too, but only for active-state matching — its
   `href` and its `store.navigate()` call both keep the query.
+- **Values are encoded into URLs and decoded out of them** (S4) — `buildPath`
+  wraps every substituted param in `encodeURIComponent`, and `matchPath`
+  `decodeSegment`s every extracted one; `WorkspaceManager.buildUrl` and
+  `BrowserTabAdapter.buildUrl` encode template and id, and their two URL
+  parsers (`descriptorFromLocation`, `currentIdFromUrl`) decode. The pairs
+  must stay paired: encoding alone would leave `useParams()` reporting
+  `a%20b`. `decodeSegment` swallows the throw `decodeURIComponent` raises on
+  malformed input like `100%` and returns the raw text. Base paths and route
+  *patterns* are never encoded — they are structure, not values.
+- **`Link`'s href escape hatch rejects executable schemes** (S5) — a
+  `javascript:` or `data:` href is dropped and the anchor renders bare. The
+  test strips C0 controls and spaces before the prefix check, because browsers
+  ignore leading whitespace and strip TAB/LF/CR from inside a scheme, so
+  `java\nscript:` executes. Note the side effect: an anchor without `href` has
+  no `link` role, so tests for it query by text, not by role.
 - **`Link` carries both forms of one path** — the anchor's `href` is external
   (middle-click, "copy link address" and hover preview read a real URL), the
   `store.navigate()` call on click is internal. Translating once and reusing
@@ -204,6 +219,11 @@ Module ownership:
   `destroy()` must stay reversible (`attach()` re-registers popstate) or
   StrictMode's simulated unmount permanently deafens the router. Regression
   tests in `AppProvider.test.tsx` cover this.
+- **Cross-tab message payloads are untrusted** (S6) — anything same-origin can
+  post to the `workspace-router` BroadcastChannel, so `BrowserTabAdapter`'s
+  handler checks the message is an object, that `type` is one it knows, and
+  that the payload field it is about to dereference is the right shape.
+  `WorkspaceChannel` already guarded this way; the two now match.
 - **Channels**: `NamespacedBus` scoped `workspace:{id}`, created at `open()`,
   destroyed before `adapter.close()` resolves, recreated on persistence
   restore. Under tabs, emits mirror over `BroadcastChannel`

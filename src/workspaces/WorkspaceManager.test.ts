@@ -1451,3 +1451,54 @@ describe("WorkspaceManager: auth re-evaluation on restore (S1)", () => {
     expect(manager.getAll().map((w) => w.auth.granted)).toEqual([false, false]);
   });
 });
+
+// ─── S4: workspace URLs encode template and id ───────────────────────────────
+
+/**
+ * Security hardening S4, workspace half. buildUrl interpolated template and id
+ * raw, so an id containing "/" or "?" restructured the URL — and that URL is
+ * what window.open and the address bar receive.
+ */
+describe("WorkspaceManager: URL encoding (S4)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("encodes an id containing a separator", async () => {
+    const navigate = vi.fn();
+    const { manager } = makeManager({ navigate });
+    const ws = await manager.open({ template: "cam", title: "T", params: { cameraId: "c1" } });
+    // Force an id that would otherwise restructure the URL.
+    navigate.mockClear();
+    const url = (manager as unknown as { buildUrl(d: WorkspaceDescriptor): string }).buildUrl({
+      ...ws,
+      id: "1/edit",
+    });
+    expect(url).toContain("/1%2Fedit?");
+    expect(url).not.toContain("/1/edit");
+  });
+
+  it("encodes an id that would graft on a query string", async () => {
+    const { manager } = makeManager();
+    const ws = await manager.open({ template: "cam", title: "T", params: { cameraId: "c1" } });
+    const url = (manager as unknown as { buildUrl(d: WorkspaceDescriptor): string }).buildUrl({
+      ...ws,
+      id: "x?admin=true",
+    });
+    expect(url).toContain("x%3Fadmin%3Dtrue");
+  });
+
+  it("reconstructs the original id from an encoded workspace URL", () => {
+    window.history.replaceState(null, "", "/workspace/cam/1%2Fedit?title=T&cameraId=c1");
+    const { manager } = makeManager();
+    expect(manager.getAll().map((w) => w.id)).toContain("1/edit");
+  });
+
+  it("leaves an ordinary id untouched", async () => {
+    const { manager } = makeManager();
+    const ws = await manager.open({ template: "cam", title: "T", params: { cameraId: "c1" } });
+    const url = (manager as unknown as { buildUrl(d: WorkspaceDescriptor): string }).buildUrl(ws);
+    expect(url).toContain(`/workspace/cam/${ws.id}?`);
+  });
+});
