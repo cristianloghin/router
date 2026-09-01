@@ -17,6 +17,15 @@ import {
   DirtyForm,
   MetaPage,
   LazyPage,
+  WallsShell,
+  WallsIndex,
+  NewWall,
+  SelectedWall,
+  WallIndex,
+  LiveWall,
+  LiveIndex,
+  CameraDetail,
+  RecordingWall,
 } from "./pages";
 
 export const routes = defineRoutes({
@@ -28,6 +37,15 @@ export const routes = defineRoutes({
   "/settings": { component: SettingsLayout, index: SettingsIndex },
   "/settings/profile": { component: ProfileSettings },
   "/settings/security": { component: SecuritySettings },
+
+  // Deep nesting (roadmap item 5): four levels, an index at every level with
+  // children, and a static sibling competing with a parametric one.
+  "/videowalls": { component: WallsShell, index: WallsIndex },
+  "/videowalls/new": { component: NewWall },
+  "/videowalls/:id": { component: SelectedWall, index: WallIndex },
+  "/videowalls/:id/live": { component: LiveWall, index: LiveIndex },
+  "/videowalls/:id/live/:cameraId": { component: CameraDetail },
+  "/videowalls/:id/recording": { component: RecordingWall },
 
   // Wildcard
   "/files/*": { component: FileExplorer },

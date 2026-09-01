@@ -115,14 +115,130 @@ Module ownership:
   echoes the address bar's own path back to clear the query string —
   rewriting it to `toExternal(state.path)` would clobber the bar off a
   workspace, since `state.path` holds the retained *route* path there.
+- **`useQueryState` optionality is driven by `default`, not by `type`** —
+  `HasDefault` tests `TDescriptor extends { default: unknown }`, which an
+  optional `default?:` deliberately fails, so a schema that omits the key is
+  reported as having none. The runtime has to match: an absent param with no
+  default is *omitted* from the result rather than set to `undefined`, which
+  is what `exactOptionalPropertyTypes` requires of an optional property. A
+  function-valued `default` is a read-time thunk — unambiguous because no
+  `ParamType` deserializes to a function — and is evaluated inside the
+  `useMemo` keyed on `searchParams`, so it re-runs when the query changes and
+  not on a timer. Type-level regression tests live in `utils/params.test.ts`
+  and are enforced by `tsc --noEmit`.
+- **`RouterState.path` is a pathname — never a query or a fragment.** It is
+  what `RouterView`, `useRoute`, `getMatchChain` and every guard match on, so
+  a query smuggled into it matches no route at all. `navigate()` therefore
+  splits its target once, up front: `resolvedPath` (whole) is what reaches
+  `pushState`, `routePath = pathnameOf(resolvedPath)` is what reaches the
+  workspace test, the guard, `NavigationEvent.to`, `previousPath`, the
+  `HistoryStack` and `state.path`. `commitNavigation` re-derives the same
+  split, so both entry points agree. The other three writers of `path` — the
+  constructor, `handlePopState` and `back()` — are pathname-clean by
+  construction (`window.location.pathname`, or a stack entry that was).
+  `state.searchParams` is read back off the address bar *after* the push
+  rather than from the split, because `pushState` applies synchronously and
+  the bar is then authoritative whether the query arrived on the target or was
+  already there. `Link` splits too, but only for active-state matching — its
+  `href` and its `store.navigate()` call both keep the query.
+- **An ancestor in a matched chain is matched by prefix, not exactly** — the
+  chain's leaf matches the whole path, but every layout above it has a shorter
+  pattern, so `matchPath` reports no match and hands back empty params. That is
+  correct for *choosing* a leaf and wrong for *reading* an ancestor, hence
+  `matchPathPrefix`, used by `RouterView` (the `params` prop) and by
+  AppProvider's guard chain. Only ever exercised at depth: a two-level tree
+  whose parent takes no params never notices. `useRoute` reaches the same
+  answer through its own `takePrefixSegments` path — a third implementation of
+  one idea, worth collapsing if it is touched again.
+- **An `index` belongs to whichever route is the chain's leaf** — reaching the
+  leaf already means the path terminates there, so `isLeaf && def.index` is the
+  whole test. The older `path === key` string comparison silently restricted
+  indexes to *static* keys: `/videowalls/:id` could declare one and it never
+  rendered. Regression coverage is `__tests__/deep-nesting.test.tsx`, which
+  reproduces a four-level tree with an index at every level.
+- **Values are encoded into URLs and decoded out of them** (S4) — `buildPath`
+  wraps every substituted param in `encodeURIComponent`, and `matchPath`
+  `decodeSegment`s every extracted one; `WorkspaceManager.buildUrl` and
+  `BrowserTabAdapter.buildUrl` encode template and id, and their two URL
+  parsers (`descriptorFromLocation`, `currentIdFromUrl`) decode. The pairs
+  must stay paired: encoding alone would leave `useParams()` reporting
+  `a%20b`. `decodeSegment` swallows the throw `decodeURIComponent` raises on
+  malformed input like `100%` and returns the raw text. Base paths and route
+  *patterns* are never encoded — they are structure, not values.
+- **`Link`'s href escape hatch rejects executable schemes** (S5) — a
+  `javascript:` or `data:` href is dropped and the anchor renders bare. The
+  test strips C0 controls and spaces before the prefix check, because browsers
+  ignore leading whitespace and strip TAB/LF/CR from inside a scheme, so
+  `java\nscript:` executes. Note the side effect: an anchor without `href` has
+  no `link` role, so tests for it query by text, not by role.
 - **`Link` carries both forms of one path** — the anchor's `href` is external
   (middle-click, "copy link address" and hover preview read a real URL), the
   `store.navigate()` call on click is internal. Translating once and reusing
   it double-applies the base.
+- **Every entry into a route consults `routeGuard`** — `navigate()`,
+  `handlePopState`, and `evaluateInitialRoute()` for the launch route. The
+  third exists because the `RouterStore` constructor finishes *before*
+  AppProvider wires `routeGuard`, so the store cannot guard its own initial
+  state; AppProvider calls it synchronously at the end of its init block,
+  which is still before `RouterView` first renders — that ordering is what
+  keeps a guarded route from flashing on screen ungated, so do not move the
+  call into an effect. The popstate and navigate arms need no render state:
+  a route is already on screen, so they withhold the commit while an async
+  verdict settles and the current route stays visible. Only the initial match
+  has nothing to show, hence `RouterState.initialGuard`
+  (`"resolved" | "pending" | "blocked"`), which `RouterView` renders as the
+  loading chain or the not-found fallback. It defaults to `"resolved"`, so a
+  store without a wired guard — every test harness — behaves as it always did.
+  Known edge, deliberately not handled: if an initial guard redirects to a
+  route that is itself blocked, the app stays on the loading state. That is
+  the safe failure mode for a guard cycle, and the cycle is the app's bug.
+- **`RouterView` tracks the store directly until the first route commits.**
+  The mirrored `path` + `startTransition` exist so a lazy route can load with
+  the *previous* route still visible. On a cold load there is no previous
+  route, and the mirror is actively harmful: when an initial guard resolves by
+  redirecting, the mirror still holds the guarded path for one frame, which
+  would commit the gated component after the guard rejected it.
+  `hasRenderedRouteRef` gates the handover — before the first route renders,
+  `path` is `storePath`; after, it is the mirror. Regression test:
+  "redirects without ever showing the guarded route".
+- **`HistoryStack` is entries + a cursor, not a push/pop stack** — the
+  browser's back and forward move a cursor, and a stack can only be walked one
+  way (roadmap P3). `entries[index]` is the path showing now, so `push`
+  records the *destination*, not where you came from. popstate carries no
+  direction, so each entry is stamped with its index under
+  `__mksRouterIndex`, merged into (never replacing) the app's `navigate`
+  `state`; an entry with no stamp predates the router and reads as index 0.
+  Workspace pushes reuse the *current* index rather than advancing, which is
+  what keeps `canGoBack` reading the same before a workspace opens and after
+  it closes (spec §4.13) while still stamping a real browser entry. `back()`
+  stays optimistic — it sets `path` from `peekBack()` before the browser's
+  popstate arrives — and the echoing popstate then reads the same index, so
+  the two agree rather than double-applying.
+- **Every exit from a route consults `onPrompt`** — `navigate()` (`:134`),
+  `back()` (`:248`) and `handlePopState` (`:344`). The popstate arm is the
+  awkward one: the event fires *after* the URL has moved, so a refusal is
+  undone by re-pushing the entry the user tried to leave, rebuilt from
+  `state.path` + `state.searchParams` (nothing has mutated them yet). Two
+  exemptions are deliberate, not oversights — leaving a workspace URL
+  (workspace navigation is prompt-exempt everywhere, and `state.path` holds
+  the retained *route* path there, not what was in the address bar), and
+  query-only changes, matching `setSearchParams` (both sides of that
+  comparison are pathnames — see the invariant below).
+  `back()` does not double-prompt: it sets `state.path` synchronously, so the
+  browser's echoing popstate sees an unchanged path and falls through — the
+  same `isRouteChange` test also stops it re-running the guard.
+  Order inside the handler is load-bearing: workspace check → prompt → guard →
+  commit. The prompt is the user's decision and comes first; a guard that
+  refuses after the user already confirmed would waste the confirmation.
 - **`RouterStore` lives in a ref but is destroyed in an effect cleanup** — so
   `destroy()` must stay reversible (`attach()` re-registers popstate) or
   StrictMode's simulated unmount permanently deafens the router. Regression
   tests in `AppProvider.test.tsx` cover this.
+- **Cross-tab message payloads are untrusted** (S6) — anything same-origin can
+  post to the `workspace-router` BroadcastChannel, so `BrowserTabAdapter`'s
+  handler checks the message is an object, that `type` is one it knows, and
+  that the payload field it is about to dereference is the right shape.
+  `WorkspaceChannel` already guarded this way; the two now match.
 - **Channels**: `NamespacedBus` scoped `workspace:{id}`, created at `open()`,
   destroyed before `adapter.close()` resolves, recreated on persistence
   restore. Under tabs, emits mirror over `BroadcastChannel`
@@ -142,6 +258,17 @@ Module ownership:
   `Register` augmentation in scope (the playground compiles src/ with one).
   Documented footgun: a selector returning a fresh collection under the
   default `Object.is` skips nothing — `shallowEqual` is exported for that.
+- **Auth verdicts are never persisted** (S1) — `persistToStorage` writes whole
+  descriptors, `auth.granted` included, so `restoreFromStorage` strips it back
+  to `false` on the way in and `reevaluateRestoredAuth()` re-runs each rule.
+  Without that pass a restored workspace would sit ungranted forever, so the
+  two belong together. It skips the id `resolveDirectAccess()` returns —
+  otherwise two concurrent evaluations race to `setAuthGranted` for the same
+  workspace, with different `isDirectAccess` values. `credential` rules are
+  skipped entirely: auto-prompting on restore would throw a password dialog
+  for a background workspace nobody opened. The framing this serves is in
+  README's auth section — client-side gating, not security; `granted` is
+  editable in localStorage, so it is attacker-supplied input, not state.
 - **Persistence**: localStorage key `ws:v{version}` (localStorage, not
   sessionStorage — workspaces must survive a PWA being closed and reopened);
   version mismatch discards (no migration by design). Persistence is

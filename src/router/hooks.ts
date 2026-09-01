@@ -185,7 +185,15 @@ export function useQueryState<TSchema extends QueryParamSchema>(
         : raw !== undefined;
 
       if (!hasValue) {
-        result[key] = def;
+        // No default declared → the key is genuinely absent, so omit it
+        // rather than filling it with undefined. That is what makes the
+        // value match its (optional) type instead of lying about it.
+        if (def !== undefined) {
+          // A function default is a read-time thunk — the only way to express
+          // a default that is not a static literal, e.g. `() => todayISO()`.
+          // No ParamType deserializes to a function, so this is unambiguous.
+          result[key] = typeof def === "function" ? def() : def;
+        }
       } else {
         result[key] = deserializeQueryParam(raw!, type);
       }

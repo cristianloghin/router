@@ -274,6 +274,104 @@ describe("useMeta", () => {
   });
 });
 
+// ─── useQueryState: absent params and thunk defaults ─────────────────────────
+
+/**
+ * Roadmap P4. A key with no declared default used to be assigned `undefined`
+ * while its type claimed a value; it is now omitted, matching its optional
+ * type. Thunk defaults exist for defaults no static literal can express.
+ */
+describe("useQueryState: absent params", () => {
+  function atUrl(url: string) {
+    window.history.replaceState(null, "", url);
+    store.destroy();
+    store = new RouterStore({});
+    return store;
+  }
+
+  it("omits a key that is absent and has no default", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ allDay: { type: "boolean" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect("allDay" in result.current[0]).toBe(false);
+    expect(result.current[0].allDay).toBeUndefined();
+  });
+
+  it("reads the key normally when it is present", () => {
+    atUrl("/?allDay=true");
+    const { result } = renderHook(
+      () => useQueryState({ allDay: { type: "boolean" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].allDay).toBe(true);
+  });
+
+  it("omits an absent array key with no default", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ tags: { type: "string[]" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect("tags" in result.current[0]).toBe(false);
+  });
+
+  it("calls a thunk default when the param is absent", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ date: { type: "string", default: () => "2026-09-01" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].date).toBe("2026-09-01");
+  });
+
+  it("does not call the thunk when the param is present", () => {
+    atUrl("/?date=2026-01-01");
+    const thunk = vi.fn(() => "2026-09-01");
+    const { result } = renderHook(
+      () => useQueryState({ date: { type: "string", default: thunk } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].date).toBe("2026-01-01");
+    expect(thunk).not.toHaveBeenCalled();
+  });
+
+  it("still honours a literal default", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ page: { type: "number", default: 1 } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].page).toBe(1);
+  });
+
+  it("mixes a defaulted and an undefaulted key", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({
+        date: { type: "string", default: () => "2026-09-01" },
+        allDay: { type: "boolean" },
+      }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].date).toBe("2026-09-01");
+    expect("allDay" in result.current[0]).toBe(false);
+  });
+
+  it("a thunk default is not written to the URL until the setter runs", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ date: { type: "string", default: () => "2026-09-01" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    // Read-time default: the value is served, the address bar stays clean.
+    expect(store.getSnapshot().searchParams.get("date")).toBeNull();
+    act(() => { result.current[1]({ date: "2026-09-02" }); });
+    expect(store.getSnapshot().searchParams.get("date")).toBe("2026-09-02");
+  });
+});
+
 // ─── usePrompt ────────────────────────────────────────────────────────────────
 
 describe("usePrompt", () => {
@@ -362,5 +460,118 @@ describe("usePrompt: back() interception", () => {
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+// ─── usePrompt: popstate interception ────────────────────────────────────────
+
+/**
+ * The browser's own back/forward. Simulated the way the browser does it: the
+ * URL has already moved by the time popstate is dispatched.
+ */
+function popTo(url: string) {
+  window.history.replaceState(null, "", url);
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+}
+
+describe("usePrompt: popstate interception", () => {
+  it("blocks browser back when confirm returns false", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/");
+
+    expect(store.getSnapshot().path).toBe("/editor");
+    vi.restoreAllMocks();
+  });
+
+  it("restores the address bar to the entry the user tried to leave", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+    act(() => { store.setSearchParams(new URLSearchParams("draft=7")); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/");
+
+    expect(window.location.pathname).toBe("/editor");
+    expect(window.location.search).toBe("?draft=7");
+    vi.restoreAllMocks();
+  });
+
+  it("allows browser back when confirm returns true", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    act(() => { store.navigate("/editor"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/");
+
+    expect(store.getSnapshot().path).toBe("/");
+    vi.restoreAllMocks();
+  });
+
+  it("calls confirm with the provided message", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    act(() => { store.navigate("/editor"); });
+    renderHook(() => usePrompt("You have unsaved changes.", true), { wrapper: makeWrapper(store) });
+
+    popTo("/");
+
+    expect(confirmSpy).toHaveBeenCalledWith("You have unsaved changes.");
+    vi.restoreAllMocks();
+  });
+
+  it("does not prompt when no usePrompt is mounted", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+
+    popTo("/");
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(store.getSnapshot().path).toBe("/");
+    vi.restoreAllMocks();
+  });
+
+  it("does not prompt on a query-only popstate — the route stays mounted", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+    act(() => { store.setSearchParams(new URLSearchParams("tab=2")); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/editor?tab=1");
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(store.getSnapshot().searchParams.get("tab")).toBe("1");
+    vi.restoreAllMocks();
+  });
+
+  it("does not prompt when leaving a workspace URL — workspace nav is exempt", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/workspace/cam/ws-1");          // into the workspace — already exempt
+    expect(store.getSnapshot().inWorkspace).toBe(true);
+    popTo("/");                            // back out of it
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(store.getSnapshot().path).toBe("/");
+    vi.restoreAllMocks();
+  });
+
+  it("does not double-prompt when back() drives the popstate itself", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    // Real window.history.back() is async; drive the resulting popstate by hand.
+    vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { result: navResult } = renderHook(() => useNavigation(), { wrapper: makeWrapper(store) });
+    act(() => { navResult.current.navigate("/editor"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    act(() => { navResult.current.back(); });   // prompts once, sets path to "/"
+    popTo("/");                                 // the browser's echo
+
+    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(store.getSnapshot().path).toBe("/");
+    vi.restoreAllMocks();
   });
 });

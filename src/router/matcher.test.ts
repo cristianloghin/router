@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchPath, buildPath, specificity } from "./matcher";
+import { matchPath, matchPathPrefix, buildPath, specificity, pathnameOf, decodeSegment } from "./matcher";
 
 // ─── matchPath — static paths ─────────────────────────────────────────────────
 
@@ -121,5 +121,168 @@ describe("specificity", () => {
 
   it("one parametric segment beats a root wildcard", () => {
     expect(specificity("/:any")).toBeGreaterThan(specificity("/*"));
+  });
+});
+
+// ─── pathnameOf ───────────────────────────────────────────────────────────────
+
+describe("pathnameOf", () => {
+  it("passes a plain path through unchanged", () => {
+    expect(pathnameOf("/editor")).toBe("/editor");
+    expect(pathnameOf("/")).toBe("/");
+  });
+
+  it("drops a query string", () => {
+    expect(pathnameOf("/editor?draft=7")).toBe("/editor");
+    expect(pathnameOf("/search?q=a&q=b")).toBe("/search");
+  });
+
+  it("drops a fragment", () => {
+    expect(pathnameOf("/docs#install")).toBe("/docs");
+  });
+
+  it("cuts at whichever comes first", () => {
+    expect(pathnameOf("/docs?v=2#install")).toBe("/docs");
+    expect(pathnameOf("/docs#install?v=2")).toBe("/docs");
+  });
+
+  it("handles an empty query and an empty fragment", () => {
+    expect(pathnameOf("/editor?")).toBe("/editor");
+    expect(pathnameOf("/editor#")).toBe("/editor");
+  });
+
+  it("leaves a ? inside an already-encoded segment alone", () => {
+    expect(pathnameOf("/notes/what%3F")).toBe("/notes/what%3F");
+  });
+});
+
+// ─── S4: URL-encoding of interpolated values ─────────────────────────────────
+
+/**
+ * Security hardening S4. buildPath substituted params raw, so a value
+ * containing "/", "?" or "#" restructured the URL it was placed into: an id of
+ * "1/edit" navigated somewhere else entirely, "x?admin=true" grafted on a
+ * query string. Not a guard bypass — guards run on the resolved path — but the
+ * URL stopped meaning what the caller wrote.
+ */
+describe("buildPath: encoding", () => {
+  it("encodes a separator so the value stays one segment", () => {
+    expect(buildPath("/users/:id", { id: "1/edit" })).toBe("/users/1%2Fedit");
+  });
+
+  it("encodes a query introducer so it cannot graft on params", () => {
+    expect(buildPath("/users/:id", { id: "x?admin=true" })).toBe("/users/x%3Fadmin%3Dtrue");
+  });
+
+  it("encodes a fragment introducer", () => {
+    expect(buildPath("/users/:id", { id: "a#b" })).toBe("/users/a%23b");
+  });
+
+  it("encodes spaces and non-ASCII", () => {
+    expect(buildPath("/q/:term", { term: "a b" })).toBe("/q/a%20b");
+    expect(buildPath("/q/:term", { term: "café" })).toBe("/q/caf%C3%A9");
+  });
+
+  it("leaves ordinary values untouched", () => {
+    expect(buildPath("/camera/:id", { id: "cam-4" })).toBe("/camera/cam-4");
+    expect(buildPath("/a/:x/b/:y", { x: "1", y: "2" })).toBe("/a/1/b/2");
+  });
+
+  it("still leaves an unsupplied param as its placeholder", () => {
+    expect(buildPath("/users/:id", {})).toBe("/users/:id");
+  });
+});
+
+describe("matchPath: decoding", () => {
+  it("round-trips a value containing a separator", () => {
+    const built = buildPath("/users/:id", { id: "1/edit" });
+    const { matched, params } = matchPath("/users/:id", built);
+    expect(matched).toBe(true);
+    expect(params["id"]).toBe("1/edit");
+  });
+
+  it("round-trips spaces and non-ASCII", () => {
+    expect(matchPath("/q/:term", buildPath("/q/:term", { term: "a b" })).params["term"]).toBe("a b");
+    expect(matchPath("/q/:term", buildPath("/q/:term", { term: "café" })).params["term"]).toBe("café");
+  });
+
+  it("decodes a wildcard remainder per segment", () => {
+    const { params } = matchPath("/files/*", "/files/a%20b/c%20d");
+    expect(params["*"]).toBe("a b/c d");
+  });
+
+  it("leaves ordinary values untouched", () => {
+    expect(matchPath("/camera/:id", "/camera/cam-4").params["id"]).toBe("cam-4");
+  });
+
+  it("falls back to the raw segment on malformed percent-encoding", () => {
+    expect(matchPath("/camera/:id", "/camera/100%").params["id"]).toBe("100%");
+  });
+});
+
+describe("decodeSegment", () => {
+  it("decodes valid percent-encoding", () => {
+    expect(decodeSegment("a%20b")).toBe("a b");
+    expect(decodeSegment("1%2Fedit")).toBe("1/edit");
+  });
+
+  it("returns the raw text when decoding would throw", () => {
+    expect(decodeSegment("100%")).toBe("100%");
+    expect(decodeSegment("%ZZ")).toBe("%ZZ");
+  });
+
+  it("is a no-op for plain segments", () => {
+    expect(decodeSegment("cam-4")).toBe("cam-4");
+  });
+});
+
+// ─── matchPathPrefix ──────────────────────────────────────────────────────────
+
+/**
+ * How an ancestor in a matched chain reads its own params. matchPath refuses a
+ * pathname longer than the pattern — correct for picking a leaf, wrong for a
+ * layout that is still on screen above one.
+ */
+describe("matchPathPrefix", () => {
+  it("extracts params when the path continues past the pattern", () => {
+    const { matched, params } = matchPathPrefix("/videowalls/:id", "/videowalls/w1/live/cam9");
+    expect(matched).toBe(true);
+    expect(params["id"]).toBe("w1");
+  });
+
+  it("behaves exactly like matchPath when the depths line up", () => {
+    expect(matchPathPrefix("/camera/:id", "/camera/cam-4"))
+      .toEqual(matchPath("/camera/:id", "/camera/cam-4"));
+    expect(matchPathPrefix("/settings", "/settings"))
+      .toEqual(matchPath("/settings", "/settings"));
+  });
+
+  it("rejects a path shorter than the pattern", () => {
+    expect(matchPathPrefix("/videowalls/:id/live", "/videowalls/w1").matched).toBe(false);
+  });
+
+  it("rejects a static segment mismatch inside the prefix", () => {
+    expect(matchPathPrefix("/videowalls/:id/live", "/videowalls/w1/export/x").matched).toBe(false);
+  });
+
+  it("matches the root pattern against any path", () => {
+    expect(matchPathPrefix("/", "/a/b/c").matched).toBe(true);
+  });
+
+  it("decodes ancestor params", () => {
+    expect(matchPathPrefix("/videowalls/:id", "/videowalls/w%201/live").params["id"]).toBe("w 1");
+  });
+
+  it("defers to matchPath for wildcard patterns", () => {
+    expect(matchPathPrefix("/files/*", "/files/a/b"))
+      .toEqual(matchPath("/files/*", "/files/a/b"));
+  });
+
+  it("collects every param along a multi-level prefix", () => {
+    const { params } = matchPathPrefix(
+      "/videowalls/:id/live",
+      "/videowalls/w1/live/cam9",
+    );
+    expect(params).toEqual({ id: "w1" });
   });
 });

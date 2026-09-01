@@ -210,6 +210,7 @@ function NavMenu() {
       <section>
         <h4>Nesting & loading</h4>
         <Link to="/settings" activeClassName="active">Nested routes</Link>
+        <Link to="/videowalls" activeClassName="active">Deep nesting (4 levels)</Link>
         <Link to="/lazy" activeClassName="active">Lazy route</Link>
       </section>
 

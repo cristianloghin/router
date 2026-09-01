@@ -793,3 +793,235 @@ describe("AppProvider: React.StrictMode", () => {
     expect(getByText("About")).toBeTruthy();
   });
 });
+
+// ─── Guards on the initial match ──────────────────────────────────────────────
+
+/**
+ * Roadmap P1: `routeGuard` used to be consulted only by `navigate()`, so a cold
+ * deep-link to a guarded route rendered it ungated. These start *at* the
+ * guarded route rather than navigating to it — the case the pre-existing guard
+ * tests all stepped around by resetting to "/" first.
+ */
+describe("AppProvider: guards on initial load", () => {
+  function renderAt(
+    initialPath: string,
+    guardedRoutes: Parameters<typeof defineRoutes>[0],
+    config: Record<string, unknown> = {},
+  ) {
+    window.history.replaceState(null, "", initialPath);
+    const map = defineRoutes(guardedRoutes);
+    return render(
+      <AppProvider
+        routes={map}
+        workspaces={workspaces}
+        config={{ adapter: "stack", ...config }}
+      >
+        <RouterView fallback={() => <div>DENIED</div>} />
+      </AppProvider>,
+    );
+  }
+
+  const Admin = () => <div>ADMIN</div>;
+  const Login = () => <div>LOGIN</div>;
+
+  it("does not render a route whose guard returns false on cold load", () => {
+    const { container } = renderAt("/admin", {
+      "/": { component: () => null },
+      "/login": { component: Login },
+      "/admin": { component: Admin, guard: () => false },
+    });
+    expect(container.textContent).not.toContain("ADMIN");
+    expect(container.textContent).toContain("DENIED");
+  });
+
+  it("renders a route whose guard returns true on cold load", () => {
+    const { container } = renderAt("/admin", {
+      "/": { component: () => null },
+      "/admin": { component: Admin, guard: () => true },
+    });
+    expect(container.textContent).toContain("ADMIN");
+  });
+
+  it("follows a redirect returned by the guard on cold load", () => {
+    const { container } = renderAt("/admin", {
+      "/": { component: () => null },
+      "/login": { component: Login },
+      "/admin": { component: Admin, guard: () => "/login" },
+    });
+    expect(container.textContent).toContain("LOGIN");
+    expect(container.textContent).not.toContain("ADMIN");
+    expect(window.location.pathname).toBe("/login");
+  });
+
+  it("hands the guard the launched path, not the root", () => {
+    const seen: string[] = [];
+    renderAt("/admin", {
+      "/": { component: () => null },
+      "/admin": {
+        component: Admin,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        guard: (_p: any, ctx: any) => { seen.push(ctx.path); return true; },
+      },
+    });
+    expect(seen).toEqual(["/admin"]);
+  });
+
+  it("leaves an unguarded cold load untouched — no pending frame", () => {
+    const { container } = renderAt("/admin", {
+      "/": { component: () => null },
+      "/admin": { component: Admin },
+    }, { defaultLoading: () => <div>SPINNER</div> });
+    expect(container.textContent).toContain("ADMIN");
+    expect(container.textContent).not.toContain("SPINNER");
+  });
+});
+
+// ─── Async guards on the initial match ────────────────────────────────────────
+
+describe("AppProvider: async guards on initial load", () => {
+  const Admin = () => <div>ADMIN</div>;
+  const Login = () => <div>LOGIN</div>;
+
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+
+  function renderAt(
+    initialPath: string,
+    guardedRoutes: Parameters<typeof defineRoutes>[0],
+    config: Record<string, unknown> = {},
+  ) {
+    window.history.replaceState(null, "", initialPath);
+    const map = defineRoutes(guardedRoutes);
+    return render(
+      <AppProvider
+        routes={map}
+        workspaces={workspaces}
+        config={{ adapter: "stack", ...config }}
+      >
+        <RouterView fallback={() => <div>DENIED</div>} />
+      </AppProvider>,
+    );
+  }
+
+  it("shows defaultLoading while the guard is in flight, then the route", async () => {
+    const gate = deferred<boolean>();
+    const { container } = renderAt("/admin", {
+      "/": { component: () => null },
+      "/admin": { component: Admin, guard: () => gate.promise },
+    }, { defaultLoading: () => <div>SPINNER</div> });
+
+    expect(container.textContent).toContain("SPINNER");
+    expect(container.textContent).not.toContain("ADMIN");
+
+    await act(async () => { gate.resolve(true); await gate.promise; });
+    expect(container.textContent).toContain("ADMIN");
+  });
+
+  it("prefers the route's own loading component over defaultLoading", async () => {
+    const gate = deferred<boolean>();
+    const { container } = renderAt("/admin", {
+      "/": { component: () => null },
+      "/admin": {
+        component: Admin,
+        loading: () => <div>OWN-LOADER</div>,
+        guard: () => gate.promise,
+      },
+    }, { defaultLoading: () => <div>SPINNER</div> });
+
+    expect(container.textContent).toContain("OWN-LOADER");
+    expect(container.textContent).not.toContain("SPINNER");
+    await act(async () => { gate.resolve(true); await gate.promise; });
+  });
+
+  it("renders the fallback when the guard resolves false", async () => {
+    const gate = deferred<boolean>();
+    const { container } = renderAt("/admin", {
+      "/": { component: () => null },
+      "/admin": { component: Admin, guard: () => gate.promise },
+    }, { defaultLoading: () => <div>SPINNER</div> });
+
+    await act(async () => { gate.resolve(false); await gate.promise; });
+    expect(container.textContent).toContain("DENIED");
+    expect(container.textContent).not.toContain("ADMIN");
+  });
+
+  it("redirects without ever showing the guarded route", async () => {
+    const gate = deferred<string>();
+    const seen: string[] = [];
+    function Probe() {
+      const { path } = useLocation();
+      seen.push(path);
+      return null;
+    }
+    window.history.replaceState(null, "", "/admin");
+    const map = defineRoutes({
+      "/": { component: () => null },
+      "/login": { component: Login },
+      "/admin": { component: Admin, guard: () => gate.promise },
+    });
+    const { container } = render(
+      <AppProvider routes={map} workspaces={workspaces} config={{ adapter: "stack" }}>
+        <RouterView fallback={() => <div>DENIED</div>} />
+        <Probe />
+      </AppProvider>,
+    );
+
+    await act(async () => { gate.resolve("/login"); await gate.promise; });
+    expect(container.textContent).toContain("LOGIN");
+    // The gated component must never have been committed, not even for the
+    // frame between the redirect landing and the transition mirror catching up.
+    expect(container.textContent).not.toContain("ADMIN");
+  });
+
+  it("renders the fallback when the guard promise rejects", async () => {
+    const gate = deferred<boolean>();
+    const { container } = renderAt("/admin", {
+      "/": { component: () => null },
+      "/admin": { component: Admin, guard: () => gate.promise.then(() => { throw new Error("x"); }) },
+    });
+    await act(async () => {
+      gate.resolve(true);
+      await gate.promise.catch(() => {});
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("DENIED");
+  });
+});
+
+// ─── Guards on ancestor routes at depth ───────────────────────────────────────
+
+/**
+ * Guards run over the whole matched chain. An ancestor's pattern is shorter
+ * than the target path whenever a deeper child is matched, so its guard used
+ * to be handed an empty params object — a guard on /videowalls/:id could not
+ * tell which wall it was being asked about.
+ */
+describe("AppProvider: ancestor guard params at depth", () => {
+  it("gives an ancestor guard its own params when a deeper child is the target", () => {
+    window.history.replaceState(null, "", "/");
+    const seen: Record<string, string>[] = [];
+    const map = defineRoutes({
+      "/": { component: () => null },
+      "/videowalls/:id": {
+        component: () => null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        guard: (params: any) => { seen.push({ ...params }); return true; },
+      },
+      "/videowalls/:id/live": { component: () => <div>LIVE</div> },
+    });
+    const { result } = renderHook(() => useNavigation(), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <AppProvider routes={map} workspaces={workspaces} config={{ adapter: "stack" }}>
+          {children}
+        </AppProvider>
+      ),
+    });
+
+    act(() => { result.current.navigate("/videowalls/w7/live"); });
+
+    expect(seen).toEqual([{ id: "w7" }]);
+  });
+});

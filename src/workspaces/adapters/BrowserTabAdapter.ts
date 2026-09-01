@@ -5,6 +5,7 @@ import type {
   WorkspaceParams,
 } from "../types";
 import { normalizeBasePath, toInternal, toExternal } from "../../router/basePath";
+import { decodeSegment } from "../../router/matcher";
 
 // BroadcastChannel message shapes
 type BcMessage =
@@ -105,7 +106,7 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
 
     // /{template}/{id}
     const parts = pathname.slice(prefix.length).split("/");
-    return parts[1] || null;
+    return parts[1] ? decodeSegment(parts[1]) : null;
   }
 
   restoreState(descriptors: WorkspaceDescriptor[]): void {
@@ -130,14 +131,21 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
     try {
       this.bc = new BroadcastChannel("workspace-router");
       this.bc.onmessage = (event: MessageEvent<BcMessage>) => {
-        const msg = event.data;
+        // Anything same-origin can post here, so the payload is untrusted
+        // input, not a contract: read defensively before dereferencing.
+        // WorkspaceChannel already guards this way; this mirrors it.
+        const msg = event.data as BcMessage | null;
+        if (!msg || typeof msg !== "object") return;
+
         if (msg.type === "workspace:opened") {
+          if (!msg.workspace || typeof msg.workspace.id !== "string") return;
           const exists = this.workspaces.some((w) => w.id === msg.workspace.id);
           if (!exists) {
             this.workspaces.push(msg.workspace);
           }
           this.emit({ type: "workspace:opened", workspace: msg.workspace });
         } else if (msg.type === "workspace:closed") {
+          if (typeof msg.workspaceId !== "string") return;
           this.workspaces = this.workspaces.filter((w) => w.id !== msg.workspaceId);
           this.emit({ type: "workspace:closed", workspaceId: msg.workspaceId });
           // Another tab closed this workspace — if it lives here, close this tab.
@@ -167,7 +175,9 @@ export class BrowserTabAdapter implements WorkspaceAdapter {
         params.set(key, String(value));
       }
     }
-    return `${this.workspaceBasePath}/${descriptor.template}/${descriptor.id}?${params.toString()}`;
+    // Encoded for the same reason as WorkspaceManager.buildUrl — a raw id
+    // containing "/" or "?" would restructure the URL window.open receives.
+    return `${this.workspaceBasePath}/${encodeURIComponent(descriptor.template)}/${encodeURIComponent(descriptor.id)}?${params.toString()}`;
   }
 
   private emit(event: WorkspaceEvent): void {

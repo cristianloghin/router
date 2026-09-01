@@ -129,7 +129,12 @@ export function RouteBoundary({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function resolveLoading(loading: React.ComponentType | React.ReactNode): React.ReactNode {
+/**
+ * Loading fallback resolution: route `loading` → `defaultLoading` → null.
+ * Exported so RouterView's initial-guard pending state uses the same chain
+ * rather than growing a parallel one.
+ */
+export function resolveLoading(loading: React.ComponentType | React.ReactNode): React.ReactNode {
   if (loading === undefined || loading === null) return null;
   if (typeof loading === "function") {
     const LoadingComponent = loading as React.ComponentType;

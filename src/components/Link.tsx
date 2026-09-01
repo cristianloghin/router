@@ -1,7 +1,7 @@
 import React from "react";
 import { useRouterStore } from "../router/context";
 import { useSyncExternalStore } from "react";
-import { matchPath, buildPath } from "../router/matcher";
+import { matchPath, buildPath, pathnameOf } from "../router/matcher";
 import type { LinkParamsProp, RoutePath } from "../router/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -43,6 +43,13 @@ export function Link<TPath extends RoutePath = RoutePath>(
   // All other anchor attributes (onClick, target, data-*, aria-*) pass through.
   if ("href" in props && props.href !== undefined) {
     const { href, children, to: _to, ...anchorProps } = props;
+    // The escape hatch renders href verbatim, so a `javascript:` URL executes
+    // on click — React warns about it but does not block it. Drop the
+    // attribute rather than hand the browser an executable URL: the anchor
+    // still renders, it just goes nowhere.
+    if (isDangerousHref(href)) {
+      return <a {...anchorProps}>{children}</a>;
+    }
     return (
       <a href={href} {...anchorProps}>
         {children}
@@ -82,10 +89,13 @@ export function Link<TPath extends RoutePath = RoutePath>(
   const path = buildPath(to, params);
   const href = store.toExternal(path);
 
-  // Determine active state
-  const { matched } = matchPath(to, currentPath);
+  // Determine active state. `currentPath` is pathname-only, so a `to` carrying
+  // a query ("/search?q=x") has to shed it before matching — the query is part
+  // of the destination, not part of which route is active.
+  const toPathname = pathnameOf(to);
+  const { matched } = matchPath(toPathname, currentPath);
   // Ancestor match: current path starts with this route (at segment boundary)
-  const isAncestor = !matched && isSegmentAncestor(to, currentPath);
+  const isAncestor = !matched && isSegmentAncestor(toPathname, currentPath);
   const isActive = matched || isAncestor;
   const isExact = matched;
 
@@ -130,6 +140,20 @@ export function Link<TPath extends RoutePath = RoutePath>(
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * True for hrefs whose scheme executes rather than navigates.
+ *
+ * Tested against a normalised copy: browsers ignore leading whitespace and
+ * strip TAB/LF/CR from *inside* a scheme, so "java\nscript:alert(1)" runs
+ * just as well as the plain form. Stripping every C0 control and space before
+ * the prefix test closes both. Only the prefix is examined, so a legitimate
+ * URL that happens to contain "data:" later on is unaffected.
+ */
+function isDangerousHref(href: string): boolean {
+  const normalized = href.replace(/[\u0000-\u0020]/g, "").toLowerCase();
+  return normalized.startsWith("javascript:") || normalized.startsWith("data:");
+}
 
 function isSegmentAncestor(pattern: string, currentPath: string): boolean {
   if (pattern === "/") return currentPath !== "/" && currentPath.startsWith("/");

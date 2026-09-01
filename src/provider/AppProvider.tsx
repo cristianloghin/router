@@ -18,7 +18,7 @@ import { BrowserTabAdapter } from "../workspaces/adapters/BrowserTabAdapter";
 
 import { AppConfigContext } from "./context";
 
-import { matchPath } from "../router/matcher";
+import { matchPath, matchPathPrefix } from "../router/matcher";
 import type {
   RouteMap,
   RouteErrorProps,
@@ -241,7 +241,10 @@ export function AppProvider<
       const runFrom = (index: number): boolean | string | Promise<boolean | string> => {
         for (let i = index; i < guarded.length; i++) {
           const entry = guarded[i]!;
-          const { params } = matchPath(entry.key, path);
+          // Prefix match: guards run over the whole matched chain, so an
+          // ancestor guard on /videowalls/:id must still receive its id when
+          // the target is /videowalls/:id/live.
+          const { params } = matchPathPrefix(entry.key, path);
           const verdict = entry.guard(params as Record<string, never>, makeContext());
           if (verdict === true) continue;
           if (verdict instanceof Promise) {
@@ -254,6 +257,13 @@ export function AppProvider<
 
       return runFrom(0);
     };
+
+    // Guard the route the app was launched on (spec §2.1). This has to run
+    // here rather than in the RouterStore constructor, which completes before
+    // `routeGuard` above exists — and synchronously within this block, so the
+    // verdict is in place before RouterView first renders and a guarded route
+    // never flashes on screen ungated.
+    storeRef.current.evaluateInitialRoute();
   }
 
   // Wire lifecycle hooks on every render (latest callback)

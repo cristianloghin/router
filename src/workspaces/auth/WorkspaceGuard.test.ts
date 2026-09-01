@@ -64,16 +64,65 @@ describe("WorkspaceGuard: time-limited", () => {
 // ─── credential ───────────────────────────────────────────────────────────────
 
 describe("WorkspaceGuard: credential", () => {
-  it("calls validate with CredentialInput and resolves to validate's result (true)", async () => {
+  it("fails closed when no credential source is configured (S2)", async () => {
+    // Previously this validated {username: "", password: ""} — so a lenient
+    // validator granted access to a guard that was never asked anything.
     const validate = vi.fn().mockResolvedValue(true);
     const guard = new WorkspaceGuard({ isAuthenticated: () => false });
     const rule: WorkspaceAuthRule = { type: "credential", validate };
-    expect(await guard.evaluate(rule, ctx)).toBe(true);
-    expect(validate).toHaveBeenCalledWith({ username: "", password: "" });
+    expect(await guard.evaluate(rule, ctx)).toBe(false);
+    expect(validate).not.toHaveBeenCalled();
   });
 
-  it("resolves false when validate returns false", async () => {
-    const guard = new WorkspaceGuard({ isAuthenticated: () => false });
+  it("validates a fixed credentialInput", async () => {
+    const validate = vi.fn().mockResolvedValue(true);
+    const guard = new WorkspaceGuard({
+      isAuthenticated: () => false,
+      credentialInput: { username: "u", password: "p" },
+    });
+    expect(await guard.evaluate({ type: "credential", validate }, ctx)).toBe(true);
+    expect(validate).toHaveBeenCalledWith({ username: "u", password: "p" });
+  });
+
+  it("validates credentials collected by requestCredential", async () => {
+    const validate = vi.fn().mockResolvedValue(true);
+    const guard = new WorkspaceGuard({
+      isAuthenticated: () => false,
+      requestCredential: async () => ({ username: "u", password: "p" }),
+    });
+    expect(await guard.evaluate({ type: "credential", validate }, ctx)).toBe(true);
+    expect(validate).toHaveBeenCalledWith({ username: "u", password: "p" });
+  });
+
+  it("fails closed when the user cancels the credential prompt", async () => {
+    const validate = vi.fn().mockResolvedValue(true);
+    const guard = new WorkspaceGuard({
+      isAuthenticated: () => false,
+      requestCredential: async () => null,
+    });
+    expect(await guard.evaluate({ type: "credential", validate }, ctx)).toBe(false);
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it("prefers an explicit override over both configured sources", async () => {
+    const validate = vi.fn().mockResolvedValue(true);
+    const guard = new WorkspaceGuard({
+      isAuthenticated: () => false,
+      credentialInput: { username: "cfg", password: "cfg" },
+      requestCredential: async () => ({ username: "asked", password: "asked" }),
+    });
+    await guard.evaluate({ type: "credential", validate }, ctx, {
+      username: "override",
+      password: "override",
+    });
+    expect(validate).toHaveBeenCalledWith({ username: "override", password: "override" });
+  });
+
+  it("resolves false when validate rejects the credentials", async () => {
+    const guard = new WorkspaceGuard({
+      isAuthenticated: () => false,
+      credentialInput: { username: "u", password: "bad" },
+    });
     const rule: WorkspaceAuthRule = { type: "credential", validate: async () => false };
     expect(await guard.evaluate(rule, ctx)).toBe(false);
   });

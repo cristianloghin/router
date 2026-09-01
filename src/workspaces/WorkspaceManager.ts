@@ -15,6 +15,7 @@ import { createWorkspaceChannel } from "./channel/WorkspaceChannel";
 import type { WorkspaceChannelPair } from "./channel/WorkspaceChannel";
 import { serialize, paramsToRecord } from "../utils/params";
 import { normalizeBasePath, toInternal } from "../router/basePath";
+import { decodeSegment } from "../router/matcher";
 import type { ParamSchema } from "../utils/params";
 import type { CredentialInput } from "./types";
 
@@ -161,7 +162,11 @@ export class WorkspaceManager {
 
     // Direct URL access (spec §6.2): a workspace URL loaded directly (fresh
     // tab, page reload) re-evaluates auth with isDirectAccess: true.
-    this.resolveDirectAccess();
+    const directAccessId = this.resolveDirectAccess();
+
+    // Everything else persistence brought back is re-checked too (S1) — the
+    // foreground workspace was never the only one holding a grant.
+    if (this.persistKey) this.reevaluateRestoredAuth(directAccessId);
 
     // Seed the transition baseline from whatever restore/direct-access left
     // current. Emits to nobody (no subscribers yet) — the point is that the
@@ -173,10 +178,11 @@ export class WorkspaceManager {
 
   // ─── direct access (spec §6.2 / §6.4) ────────────────────────────────────────
 
-  private resolveDirectAccess(): void {
-    if (typeof window === "undefined") return;
+  /** Returns the id it evaluated, so restore-time re-checks can skip it. */
+  private resolveDirectAccess(): string | null {
+    if (typeof window === "undefined") return null;
     const reconstructed = this.descriptorFromLocation();
-    if (!reconstructed) return;
+    if (!reconstructed) return null;
 
     const template = this.templates[reconstructed.template]!;
     const rule = template.auth ?? { type: "public" as const };
@@ -193,13 +199,13 @@ export class WorkspaceManager {
 
     if (rule.type === "public") {
       this.setAuthGranted(workspace.id, true);
-      return;
+      return workspace.id;
     }
 
     // Credential rules don't auto-prompt here — the AuthGate collects the
     // credentials and calls retryAuth(). Everything else re-evaluates now.
     this.setAuthGranted(workspace.id, false);
-    if (rule.type === "credential") return;
+    if (rule.type === "credential") return workspace.id;
 
     const workspaceId = workspace.id;
     void this.guard
@@ -216,6 +222,55 @@ export class WorkspaceManager {
           this.emitManagerEvent({ type: "workspace:auth-failed", workspaceId, rule });
         }
       });
+
+    return workspaceId;
+  }
+
+  /**
+   * Re-runs the auth rule for every workspace brought back by persistence (S1).
+   *
+   * `restoreFromStorage` strips `granted`, so without this pass a restored
+   * workspace would sit ungranted forever; with it, a rule that no longer
+   * passes — an expired `time-limited` window, a session that ended, a
+   * `custom` check whose answer changed — cannot come back granted.
+   *
+   * The workspace the URL points at is skipped: `resolveDirectAccess` has
+   * already evaluated it with `isDirectAccess: true`, and a second concurrent
+   * evaluation would race that one to `setAuthGranted`.
+   */
+  private reevaluateRestoredAuth(directAccessId: string | null): void {
+    for (const workspace of this.adapter.getAll()) {
+      if (workspace.id === directAccessId) continue;
+
+      const template = this.templates[workspace.template];
+      if (!template) continue;
+      const rule = template.auth ?? { type: "public" as const };
+
+      if (rule.type === "public") {
+        this.setAuthGranted(workspace.id, true);
+        continue;
+      }
+      // Credential rules never auto-prompt on restore: that would throw a
+      // password dialog for a background workspace the user has not looked
+      // at. The AuthGate collects credentials and calls retryAuth() on demand.
+      if (rule.type === "credential") continue;
+
+      const workspaceId = workspace.id;
+      void this.guard
+        .evaluate(rule, {
+          workspaceId,
+          template: workspace.template,
+          params: workspace.params,
+          isDirectAccess: false,
+        })
+        .then((granted) => {
+          if (granted) {
+            this.setAuthGranted(workspaceId, true);
+          } else {
+            this.emitManagerEvent({ type: "workspace:auth-failed", workspaceId, rule });
+          }
+        });
+    }
   }
 
   /**
@@ -229,8 +284,10 @@ export class WorkspaceManager {
     const pathname = toInternal(rawPathname, this.appBasePath);
     if (!pathname.startsWith(this.basePath + "/")) return null;
 
-    const [templateKey, id] = pathname.slice(this.basePath.length + 1).split("/");
-    if (!templateKey || !id) return null;
+    const [rawTemplateKey, rawId] = pathname.slice(this.basePath.length + 1).split("/");
+    if (!rawTemplateKey || !rawId) return null;
+    const templateKey = decodeSegment(rawTemplateKey);
+    const id = decodeSegment(rawId);
     const template = this.templates[templateKey];
     if (!template) return null;
 
@@ -337,9 +394,16 @@ export class WorkspaceManager {
 
     // Drop workspaces whose template is no longer declared, or is no longer
     // persistent (the flag may have changed between app versions).
-    const descriptors = state.workspaces.filter(
-      (w) => this.templates[w.template] && this.isPersistent(w.template),
-    );
+    //
+    // Auth grants are never restorable (S1). Persistence carries the
+    // descriptor, not the verdict: a stored `granted: true` would otherwise
+    // outlive the rule that produced it — a time-limited grant surviving its
+    // own expiry across a reload — and localStorage is editable, so the flag
+    // is attacker-supplied input. Every workspace comes back ungranted and is
+    // re-checked by reevaluateRestoredAuth().
+    const descriptors = state.workspaces
+      .filter((w) => this.templates[w.template] && this.isPersistent(w.template))
+      .map((w) => ({ ...w, auth: { ...w.auth, granted: false } }));
     if (descriptors.length === 0) return;
 
     for (const d of descriptors) {
@@ -761,6 +825,9 @@ export class WorkspaceManager {
       }
     }
 
-    return `${this.basePath}/${descriptor.template}/${descriptor.id}?${searchParams.toString()}`;
+    // Template and id are encoded for the same reason buildPath encodes route
+    // params: an id containing "/", "?" or "#" would otherwise restructure the
+    // URL. descriptorFromLocation decodes them back out.
+    return `${this.basePath}/${encodeURIComponent(descriptor.template)}/${encodeURIComponent(descriptor.id)}?${searchParams.toString()}`;
   }
 }

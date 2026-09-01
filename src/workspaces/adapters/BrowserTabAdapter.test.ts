@@ -249,3 +249,77 @@ describe("BrowserTabAdapter: subscribe", () => {
     expect(events).toHaveLength(1);
   });
 });
+
+// ─── S6: malformed BroadcastChannel messages ─────────────────────────────────
+
+/**
+ * Security hardening S6. The handler read `msg.type` with no null/shape guard,
+ * so any malformed same-origin message threw inside it. Robustness only —
+ * BroadcastChannel is same-origin — but anything on this origin can post here,
+ * which makes the payload untrusted input rather than a contract.
+ */
+describe("BrowserTabAdapter: malformed BroadcastChannel messages", () => {
+  function deliver(data: unknown): void {
+    const bc = MockBroadcastChannel.instances[0]!;
+    bc.onmessage!(new MessageEvent("message", { data }));
+  }
+
+  it("ignores null and primitive payloads without throwing", () => {
+    const adapter = new BrowserTabAdapter();
+    expect(() => deliver(null)).not.toThrow();
+    expect(() => deliver(undefined)).not.toThrow();
+    expect(() => deliver("nonsense")).not.toThrow();
+    expect(() => deliver(42)).not.toThrow();
+    expect(adapter.getAll()).toEqual([]);
+  });
+
+  it("ignores an unknown message type", () => {
+    const adapter = new BrowserTabAdapter();
+    expect(() => deliver({ type: "something:else" })).not.toThrow();
+    expect(adapter.getAll()).toEqual([]);
+  });
+
+  it("ignores workspace:opened with no usable workspace", () => {
+    const adapter = new BrowserTabAdapter();
+    expect(() => deliver({ type: "workspace:opened" })).not.toThrow();
+    expect(() => deliver({ type: "workspace:opened", workspace: null })).not.toThrow();
+    expect(() => deliver({ type: "workspace:opened", workspace: {} })).not.toThrow();
+    expect(adapter.getAll()).toEqual([]);
+  });
+
+  it("ignores workspace:closed with no usable id", () => {
+    const adapter = new BrowserTabAdapter();
+    const events: string[] = [];
+    adapter.subscribe((e) => events.push(e.type));
+    expect(() => deliver({ type: "workspace:closed" })).not.toThrow();
+    expect(() => deliver({ type: "workspace:closed", workspaceId: 42 })).not.toThrow();
+    expect(events).toEqual([]);
+  });
+
+  it("still handles a well-formed message", () => {
+    const adapter = new BrowserTabAdapter();
+    deliver({ type: "workspace:opened", workspace: makeDescriptor("uuid-ok") });
+    expect(adapter.getAll().some((w) => w.id === "uuid-ok")).toBe(true);
+  });
+});
+
+// ─── S4: window.open URLs encode template and id ─────────────────────────────
+
+describe("BrowserTabAdapter: URL encoding (S4)", () => {
+  it("encodes an id containing a separator", async () => {
+    const adapter = new BrowserTabAdapter();
+    await adapter.open(makeDescriptor("1/edit", "cameraFeed"));
+    const url = ((window.open as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[])[0] as string;
+    expect(url).toContain("/workspace/cameraFeed/1%2Fedit");
+    expect(url).not.toContain("/cameraFeed/1/edit");
+  });
+
+  it("reads an encoded id back off the URL", () => {
+    window.history.replaceState(null, "", "/workspace/cameraFeed/1%2Fedit?title=T");
+    const adapter = new BrowserTabAdapter();
+    // Adoption path: the adapter recognises this tab as the workspace's own,
+    // so it must not spawn another window for it.
+    void adapter.open(makeDescriptor("1/edit", "cameraFeed"));
+    expect(window.open).not.toHaveBeenCalled();
+  });
+});

@@ -203,9 +203,19 @@ Type-safe navigation link. Supports all standard anchor attributes.
 <Link href="https://example.com">External</Link>
 ```
 
+The `href` escape hatch renders whatever you give it, with one exception:
+`javascript:` and `data:` URLs are dropped and the anchor renders without an
+`href`. React only warns about those; they still execute on click.
+
 ### Nested routes
 
 Parent–child relationships are inferred from path prefixes. A parent route receives its matched child as the `outlet` prop.
+
+Nesting has no depth limit, and both features work at any level: a parametric
+route may declare an `index`, and a layout receives the params its *own*
+pattern declares even while a deeper child is on screen — `/videowalls/:id`
+knows its `id` while `/videowalls/:id/live/:cameraId` is rendering. Layouts are
+not remounted as the user moves between their children.
 
 ```tsx
 const routes = defineRoutes({
@@ -355,6 +365,29 @@ defineRoutes({
 });
 ```
 
+Guards run on **every** way into a route: `navigate()`, a cold load straight
+onto the route (a deep link, a bookmark, a PWA launch), and the browser's own
+back/forward.
+
+The cold-load case is the one with a visible difference, because there is no
+previous page to hold on screen while an async guard resolves:
+
+| Verdict | What renders |
+|---|---|
+| pending (a promise still in flight) | the route's own `loading`, else `defaultLoading`, else nothing |
+| `true` | the route |
+| a string | the redirect target |
+| `false` | the `RouterView` `fallback` — the same thing an unknown URL renders |
+
+A `false` verdict on a cold load has nowhere to stay put, so it renders the
+fallback rather than a blank screen; "you may not see this" and "this does not
+exist" are deliberately indistinguishable. If you want somewhere specific to
+land, return a redirect string instead.
+
+On a browser back/forward there *is* a route on screen, so nothing new
+renders: the router simply withholds the commit until the guard settles, and a
+refused move restores the address bar.
+
 ### `notFound()`
 
 Throw `notFound()` from inside a route component to signal a 404. It throws a sentinel caught by the router's internal boundary, which renders the `RouterView` fallback.
@@ -394,14 +427,14 @@ function MyComponent() {
 |---|---|---|
 | `navigate` | `(to: string, options?) => void` | Push or replace the current URL |
 | `back` | `() => void` | Go to the previous history entry |
-| `buildPath` | `(pattern: string, params?) => string` | Interpolate a path pattern with params |
+| `buildPath` | `(pattern: string, params?) => string` | Interpolate a path pattern with params (values are URL-encoded) |
 
 **`navigate` options:**
 
 | Option | Type | Description |
 |---|---|---|
 | `replace` | `boolean` | Replace instead of push |
-| `state` | `Record<string, unknown>` | Attach state to the history entry |
+| `state` | `Record<string, unknown>` | Attach state to the history entry. The router merges its own `__mksRouterIndex` key into the same object to track back/forward; leave that key alone. |
 | `params` | `Record<string, string>` | Interpolate `:param` segments in `to` |
 
 ### `useLocation`
@@ -482,6 +515,11 @@ function SearchResults() {
 }
 ```
 
+`setSearchParams` *replaces* the current history entry, so it changes the query
+without adding a back step — it is for mutating the query of the route you are
+already on. To land on a different route with a query already set, put it on
+the navigation target instead: `navigate("/search?q=router")`.
+
 ### `useQueryState`
 
 Typed, serialized URL query state. Handles `string`, `number`, `boolean`, `string[]`, and `number[]`.
@@ -495,9 +533,9 @@ function FilterPanel() {
     limit:  { type: "number",   default: 20 },
   });
 
-  // filters.page   → number
-  // filters.active → boolean
-  // filters.tags   → string[]
+  // filters.page   → number              (default declared)
+  // filters.active → boolean             (default declared)
+  // filters.tags   → string[] | undefined  (no default — may be absent)
 
   return (
     <button onClick={() => setFilters({ page: filters.page + 1 })}>
@@ -506,6 +544,23 @@ function FilterPanel() {
   );
 }
 ```
+
+**Declaring a `default` is what makes a key required.** Without one, an absent
+param yields no value, and the key is typed optional and omitted from the
+returned object — `"tags" in filters` is `false`, not `tags === undefined`.
+
+`default` also accepts a **thunk**, called at read time. That is the only way
+to express a default no static literal can:
+
+```tsx
+const [{ date, allDay }] = useQueryState({
+  date:   { type: "string",  default: () => todayISO() },  // date   → string
+  allDay: { type: "boolean" },                             // allDay → boolean | undefined
+});
+```
+
+A thunk default is served on read but not written to the URL — the address bar
+stays clean until something calls the setter.
 
 `setFilters` merges with the current state (partial update). Array values are serialized as repeated query params (`?tags=a&tags=b`).
 
@@ -542,6 +597,15 @@ function EditForm() {
 }
 ```
 
+Covers all four ways out of a route: `navigate()`, `back()`, page unload, and
+the browser's own back/forward — which in an installed PWA means Android
+hardware back and iOS edge-swipe. Declining a browser back leaves you on the
+current route with the address bar restored.
+
+Two things deliberately do *not* prompt: query-string changes on the current
+route (the route stays mounted, so there is nothing to lose), and workspace
+navigation, which is prompt-exempt throughout.
+
 ---
 
 ## Imperative navigation
@@ -554,9 +618,22 @@ import { navigate } from "@mikrostack/router";
 // Navigates using the active AppProvider's router store
 navigate("/login", { replace: true });
 navigate("/users/:id", { params: { id: "42" } });
+navigate("/search?q=router");                      // query string on the target
+navigate("/camera/:id?live=1", { params: { id: "42" } });
 ```
 
+Interpolated params are URL-encoded, so a value containing `/`, `?` or `#`
+stays one path segment instead of restructuring the URL — an id of `1/edit`
+becomes `1%2Fedit`. `useParams()` decodes on the way back, so it reports the
+value you passed in. The same applies to workspace URLs.
+
 > `navigate` is a no-op until an `AppProvider` has mounted.
+
+A query string on the target lands in the address bar and in
+`useSearchParams()`/`useQueryState()`; the route still matches on the pathname
+alone, so `useLocation().path` reads `/search`, not `/search?q=router`. The
+same applies to `<Link to="/search?q=router">` — its `href` carries the query,
+while its active state is decided by the pathname.
 
 ---
 
@@ -607,7 +684,29 @@ const workspaces = defineWorkspaces({
 
 ### Auth rules
 
-Auth is evaluated before `open()` proceeds and when a workspace URL is accessed directly (e.g. in a new tab). Failed auth rejects the `open()` promise with a `WorkspaceError`.
+> **Workspace auth is client-side gating, not security.** `time-limited` runs
+> against the client's own clock, `credential` and `custom` are functions your
+> app supplies, and `auth.granted` lives in memory and in localStorage, where
+> anyone can edit it. Treat these rules as UI affordances — they decide what
+> the interface offers, not what a user can obtain. **Any real resource a
+> workspace reaches (streams, APIs, files) must be authorized server-side, per
+> request.**
+
+Auth is evaluated before `open()` proceeds, when a workspace URL is accessed
+directly (e.g. in a new tab), and again for every workspace brought back by
+persistence on reload. Failed auth rejects the `open()` promise with a
+`WorkspaceError`.
+
+**Grants are never persisted.** A workspace restored from storage always comes
+back ungranted and has its rule re-run, so an expired `time-limited` window
+does not survive a reload and a hand-edited `granted: true` in localStorage
+buys nothing. Restored `credential` workspaces stay ungranted and are *not*
+prompted — a background workspace must not throw a password dialog on reload;
+the `AuthGate` collects credentials when the user actually opens it.
+
+**`credential` fails closed.** If no credential source is reachable — neither
+the built-in prompt nor a configured `credentialInput` — the rule returns
+`false` rather than validating empty strings.
 
 ```tsx
 // Public — no auth required

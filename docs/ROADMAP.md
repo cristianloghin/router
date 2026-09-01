@@ -4,12 +4,28 @@ Working list of library changes, to be picked up incrementally. Items graduate
 out of this file when implemented (document the result in DEV.md / README.md
 and delete the entry — same lifecycle as the original spec docs).
 
-> Provenance: everything here comes from assessing the library as a React
-> Router v7 replacement for **vms-frontend** (2026-08-03), a 47-file RR
-> surface with a four-level nested route tree. The migration was judged
+> Provenance: the parity gaps and proposed features below come from assessing
+> the library as a React Router v7 replacement for **vms-frontend**
+> (2026-08-03), a 47-file RR surface with a four-level nested route tree. The migration was judged
 > feasible (~2–3 days) with the gaps below as the only real friction. The
 > adoption goal is workspaces: user-created "scratch" walls and other views
 > the app doesn't natively support, as tabbed workspaces.
+
+> Also shipped: the **nesting-at-depth verification** (item 5). It found two
+> real defects rather than confirming the model — a parametric route's `index`
+> never rendered, and an ancestor layout received empty params whenever a
+> deeper child matched. Both fixed; the four-level tree now lives in
+> `__tests__/deep-nesting.test.tsx` and in the playground under
+> `/videowalls`.
+
+> Shipped and graduated out — the **Planner correctness gaps** (assessed
+> 2026-09-01), kept here as a key because entries below and the git history
+> still refer to them by label:
+> **P1** guards on the initial match and on popstate · **P2** `usePrompt`
+> honoured on browser back/forward · **P3** the history cursor tracking
+> browser back/forward · **P4** `useQueryState` typing an absent param as
+> optional, plus thunk defaults. Behaviour and invariants are in DEV.md and
+> README.md.
 
 Usage inventory that drove this list (vms-frontend, RR v7):
 `useNavigate` ×18, `useParams` ×13, `useOutletContext` ×7, `useLocation` ×5,
@@ -42,6 +58,13 @@ Design notes: one active blocker per mount is fine (RR allows one globally);
 must interact sanely with guards (guards run after a blocker proceeds, not
 before it blocks) and with workspace navigation (swipe/scroll sync already
 bypasses prompts — blockers should follow the same rule).
+
+Second consumer: Planner's `EventEditor` holds an unsaved draft and already
+ships its own `ConfirmDialog` — a native `confirm()` inside an installed PWA
+reads as a defect. `usePrompt` now covers the browser's own back button
+(P2, shipped); `useBlocker` must inherit that popstate handling rather than
+re-open the hole — including the re-push-on-refusal and the two exemptions
+(workspace exit, query-only changes) documented in DEV.md.
 
 ### 2. Parent→child data through the outlet
 
@@ -88,14 +111,10 @@ defineRoutes({
 ~10 lines in the registry/matcher; `redirect` and `component` mutually
 exclusive.
 
-### 5. Nesting inference at depth — verification, not a feature
-
-The prefix-inference + index-component model has only been proven on a flat
-three-route app (local-vms). vms-frontend's walls tree is four levels with an
-index component at every level and no-remount parent layouts. Before any
-adoption: playground scenario reproducing that tree shape (static-vs-param
-sibling priority `/videowalls/new` vs `/videowalls/:id` is already covered by
-specificity sorting; the depth × index × transition interplay is not).
+Second consumer: Planner needs `/` → `/day`, because the PWA's `start_url` is
+the bare base and every cold launch lands there. P1 has shipped, so the
+initial match is now an evaluated step (`evaluateInitialRoute()`) rather than
+a hole — a `redirect` entry has to be honoured there too, alongside the guard.
 
 ### Explicitly rejected (decisions, kept so they aren't relitigated)
 
@@ -198,56 +217,11 @@ feel finished.
 > items below are hardening. Prod deps audit clean; the 11 npm-audit findings
 > are all dev-toolchain (vite/vitest/ws) — `npm audit fix` when convenient.
 
-Framing that governs S1–S3: workspace auth is **client-side gating, not
-security**. `time-limited` runs on the client clock, `credential`/`custom`
-are app-supplied functions, and `auth.granted` is flippable from devtools.
-Real resources (streams, APIs) must be authorized server-side per request.
-
-### S1. Re-evaluate auth on persistence restore
-
-`persistToStorage` writes descriptors including `auth.granted: true`;
-`restoreFromStorage` hands them back as-is. Only the workspace matching the
-current URL is reset and re-checked (`resolveDirectAccess`) — background
-restored workspaces come back pre-granted indefinitely, `time-limited`
-grants survive their own expiry across reloads, and the grant is editable in
-localStorage. Fix: strip `granted` to `false` on restore and re-evaluate
-each rule. (`WorkspaceManager.restoreFromStorage`)
-
-### S2. Fail closed on missing credential source
-
-When neither `credentialInput` nor `requestCredential` is configured, the
-`credential` rule silently validates `{username: "", password: ""}`
-(`WorkspaceGuard.evaluate`). AppProvider always wires the prompt, so this
-only bites direct `WorkspaceGuard` construction — but a `validate` that
-mishandles empties then grants. Return `false` instead.
-
-### S3. README caveat on client-side auth
-
-One paragraph in the auth section stating the framing above, so consumers
-don't over-trust the gate. Cheapest item on this list.
-
-### S4. URI-encode interpolated URL parts
-
-`buildPath` substitutes params raw, and workspace URLs interpolate
-`template`/`id` raw (`WorkspaceManager.buildUrl`, `BrowserTabAdapter`). A
-value containing `/`, `?`, or `#` restructures the URL — id `1/edit`
-navigates elsewhere, `x?admin=true` injects query params. Not a guard bypass
-(guards run on the resolved path) and scheme position is unreachable
-(patterns are `/`-rooted), but `encodeURIComponent` on substituted values
-closes it.
-
-### S5. Block dangerous schemes in the Link href escape hatch
-
-`<Link href>` renders the href verbatim; a `javascript:` URL executes on
-click (React warns, doesn't block). Reject `javascript:`/`data:` schemes in
-the escape-hatch branch. (`Link.tsx`)
-
-### S6. Null-guard BroadcastChannel messages
-
-`BrowserTabAdapter`'s `onmessage` reads `msg.type` without a null/shape
-guard — a malformed same-origin message throws in the handler.
-`WorkspaceChannel` already guards; mirror it. Robustness only
-(BroadcastChannel is same-origin).
+Framing that governs this whole section: workspace auth is **client-side
+gating, not security**. `time-limited` runs on the client clock,
+`credential`/`custom` are app-supplied functions, and `auth.granted` is
+flippable from devtools. Real resources (streams, APIs) must be authorized
+server-side per request. This now says so in README's auth section (S3).
 
 ### S7. CI tightening
 
@@ -260,14 +234,15 @@ job only.
 
 ## Suggested order
 
-1. `useBlocker` (1) — unblocks vms-frontend parity.
+1. `useBlocker` (1) — unblocks vms-frontend parity; sits on top of the
+   popstate prompt handling that shipped with P2.
 2. Named slots (A) — dissolves the walls section's worst contortion *during*
    its migration rather than porting the contortion.
 3. Redirects (4) + route meta (3) — small parity wins, do together.
+   Redirects hook into the initial-match evaluation P1 added.
 4. Outlet context (2) — small; decide the shape first.
 5. Scoped modules (B), priming (C), view transitions (D) — pay off as more
    sections adopt; none block anything.
 
-Security items are order-independent of the above and individually small;
-S1–S3 first (they concern the production consumer's auth posture), the rest
-opportunistically.
+Security items are order-independent of the above. S1–S6 have shipped; only
+S7 (CI pinning) is left, and it is hygiene rather than correctness.

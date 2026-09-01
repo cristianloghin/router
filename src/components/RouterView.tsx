@@ -3,8 +3,8 @@ import { useSyncExternalStore } from "react";
 import { useRouterStore } from "../router/context";
 import { useRouteRegistry } from "../router/registryContext";
 import { useAppConfig } from "../provider/context";
-import { matchPath } from "../router/matcher";
-import { RouteBoundary } from "../router/boundaries";
+import { matchPathPrefix } from "../router/matcher";
+import { RouteBoundary, resolveLoading } from "../router/boundaries";
 import type { RouteErrorProps } from "../router/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -36,17 +36,36 @@ export function RouterView({
     () => store.getSnapshot().path,
   );
 
+  const initialGuard = useSyncExternalStore(
+    (cb) => store.subscribe(cb),
+    () => store.getSnapshot().initialGuard,
+    () => store.getSnapshot().initialGuard,
+  );
+
   // Transition semantics (spec §3.1): route changes are applied inside
   // React.startTransition via local state, so the previous route stays
   // visible while a new lazy route loads. useSyncExternalStore updates
   // cannot themselves be transitions, hence the mirrored state.
-  const [path, setPath] = useState(storePath);
+  const [mirroredPath, setMirroredPath] = useState(storePath);
   const [isPending, startTransition] = useTransition();
+
+  // Until a route has actually rendered there is nothing for the mirror to
+  // preserve, and pinning to it is actively wrong: when an initial guard
+  // resolves by redirecting, the mirror still holds the *guarded* path for one
+  // frame, which would put the gated route on screen after the guard rejected
+  // it. Track the store directly until the first route commits, then hand over
+  // to the mirror so lazy-route transitions keep working as before.
+  const hasRenderedRouteRef = useRef(false);
+  const path = hasRenderedRouteRef.current ? mirroredPath : storePath;
+
+  useEffect(() => {
+    if (initialGuard === "resolved") hasRenderedRouteRef.current = true;
+  }, [initialGuard]);
 
   useEffect(() => {
     if (storePath !== path) {
       startTransition(() => {
-        setPath(storePath);
+        setMirroredPath(storePath);
       });
     }
   }, [storePath, path]);
@@ -100,15 +119,6 @@ export function RouterView({
   // Build render chain
   const chain = registry.getMatchChain(path);
 
-  // Fallback when nothing matches OR notFound() was called from a route component
-  if (chain.length === 0 || notFoundPath !== null) {
-    return (
-      <div ref={containerRef} tabIndex={-1} style={{ outline: "none" }}>
-        {renderFallback(fallback, notFoundPath ?? path)}
-      </div>
-    );
-  }
-
   type RouteDef = {
     component: React.ComponentType<{ params: Record<string, string>; outlet: React.ReactNode }>;
     index?: React.ComponentType;
@@ -118,17 +128,53 @@ export function RouterView({
   };
   const routeMap = registry._routes as Record<string, RouteDef>;
 
+  // Initial-guard render states (spec §2.1). Only the launch route reaches
+  // here: every later navigation, popstate included, keeps the route already
+  // on screen while its guard settles, so there is nothing to stand in for.
+  //  - pending: the guard returned a promise and nothing has been rendered
+  //    yet. Show the same chain a lazy route shows — the launch route's own
+  //    `loading`, else `defaultLoading`, else nothing.
+  //  - blocked: the guard said no and named no redirect. Show what an unknown
+  //    URL shows; "you may not see this" and "this does not exist" are
+  //    deliberately indistinguishable.
+  if (initialGuard !== "resolved") {
+    const leafKey = chain[chain.length - 1];
+    const leafLoading = leafKey ? routeMap[leafKey]?.loading : undefined;
+    return (
+      <div ref={containerRef} tabIndex={-1} style={{ outline: "none" }}>
+        {initialGuard === "pending"
+          ? resolveLoading(leafLoading ?? defaultLoading)
+          : renderFallback(fallback, path)}
+      </div>
+    );
+  }
+
+  // Fallback when nothing matches OR notFound() was called from a route component
+  if (chain.length === 0 || notFoundPath !== null) {
+    return (
+      <div ref={containerRef} tabIndex={-1} style={{ outline: "none" }}>
+        {renderFallback(fallback, notFoundPath ?? path)}
+      </div>
+    );
+  }
+
   // Render inside-out: innermost first, pass outlet upward.
   let outlet: React.ReactNode = null;
   for (let i = chain.length - 1; i >= 0; i--) {
     const key = chain[i]!;
     const def = routeMap[key]!;
-    const { params } = matchPath(key, path);
+    // Prefix match, not exact: an ancestor's pattern is shorter than the path
+    // whenever a deeper child is matched, and `/videowalls/:id` still has to
+    // know which wall it is rendering while `/videowalls/:id/live` is on
+    // screen. For the leaf this is the same match `matchPath` would give.
+    const { params } = matchPathPrefix(key, path);
 
-    // If this is the innermost (leaf) and the parent has an index, use it.
+    // The chain's leaf *is* the matched route, so reaching it means the path
+    // terminates here and this route's index (if any) is what fills its
+    // outlet. Testing `path === key` instead only ever held for static keys —
+    // a parametric route's index never rendered at all.
     const isLeaf = i === chain.length - 1;
-    const isExactParent =
-      isLeaf && path === key && def.index !== undefined;
+    const isExactParent = isLeaf && def.index !== undefined;
 
     const InnerComponent = def.component;
     const capturedOutlet = outlet;
