@@ -141,6 +141,21 @@ Module ownership:
   the bar is then authoritative whether the query arrived on the target or was
   already there. `Link` splits too, but only for active-state matching — its
   `href` and its `store.navigate()` call both keep the query.
+- **An ancestor in a matched chain is matched by prefix, not exactly** — the
+  chain's leaf matches the whole path, but every layout above it has a shorter
+  pattern, so `matchPath` reports no match and hands back empty params. That is
+  correct for *choosing* a leaf and wrong for *reading* an ancestor, hence
+  `matchPathPrefix`, used by `RouterView` (the `params` prop) and by
+  AppProvider's guard chain. Only ever exercised at depth: a two-level tree
+  whose parent takes no params never notices. `useRoute` reaches the same
+  answer through its own `takePrefixSegments` path — a third implementation of
+  one idea, worth collapsing if it is touched again.
+- **An `index` belongs to whichever route is the chain's leaf** — reaching the
+  leaf already means the path terminates there, so `isLeaf && def.index` is the
+  whole test. The older `path === key` string comparison silently restricted
+  indexes to *static* keys: `/videowalls/:id` could declare one and it never
+  rendered. Regression coverage is `__tests__/deep-nesting.test.tsx`, which
+  reproduces a four-level tree with an index at every level.
 - **Values are encoded into URLs and decoded out of them** (S4) — `buildPath`
   wraps every substituted param in `encodeURIComponent`, and `matchPath`
   `decodeSegment`s every extracted one; `WorkspaceManager.buildUrl` and

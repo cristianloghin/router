@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchPath, buildPath, specificity, pathnameOf, decodeSegment } from "./matcher";
+import { matchPath, matchPathPrefix, buildPath, specificity, pathnameOf, decodeSegment } from "./matcher";
 
 // ─── matchPath — static paths ─────────────────────────────────────────────────
 
@@ -233,5 +233,56 @@ describe("decodeSegment", () => {
 
   it("is a no-op for plain segments", () => {
     expect(decodeSegment("cam-4")).toBe("cam-4");
+  });
+});
+
+// ─── matchPathPrefix ──────────────────────────────────────────────────────────
+
+/**
+ * How an ancestor in a matched chain reads its own params. matchPath refuses a
+ * pathname longer than the pattern — correct for picking a leaf, wrong for a
+ * layout that is still on screen above one.
+ */
+describe("matchPathPrefix", () => {
+  it("extracts params when the path continues past the pattern", () => {
+    const { matched, params } = matchPathPrefix("/videowalls/:id", "/videowalls/w1/live/cam9");
+    expect(matched).toBe(true);
+    expect(params["id"]).toBe("w1");
+  });
+
+  it("behaves exactly like matchPath when the depths line up", () => {
+    expect(matchPathPrefix("/camera/:id", "/camera/cam-4"))
+      .toEqual(matchPath("/camera/:id", "/camera/cam-4"));
+    expect(matchPathPrefix("/settings", "/settings"))
+      .toEqual(matchPath("/settings", "/settings"));
+  });
+
+  it("rejects a path shorter than the pattern", () => {
+    expect(matchPathPrefix("/videowalls/:id/live", "/videowalls/w1").matched).toBe(false);
+  });
+
+  it("rejects a static segment mismatch inside the prefix", () => {
+    expect(matchPathPrefix("/videowalls/:id/live", "/videowalls/w1/export/x").matched).toBe(false);
+  });
+
+  it("matches the root pattern against any path", () => {
+    expect(matchPathPrefix("/", "/a/b/c").matched).toBe(true);
+  });
+
+  it("decodes ancestor params", () => {
+    expect(matchPathPrefix("/videowalls/:id", "/videowalls/w%201/live").params["id"]).toBe("w 1");
+  });
+
+  it("defers to matchPath for wildcard patterns", () => {
+    expect(matchPathPrefix("/files/*", "/files/a/b"))
+      .toEqual(matchPath("/files/*", "/files/a/b"));
+  });
+
+  it("collects every param along a multi-level prefix", () => {
+    const { params } = matchPathPrefix(
+      "/videowalls/:id/live",
+      "/videowalls/w1/live/cam9",
+    );
+    expect(params).toEqual({ id: "w1" });
   });
 });

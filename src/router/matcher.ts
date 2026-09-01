@@ -69,16 +69,54 @@ export function matchPath(
   // Non-wildcard: lengths must match exactly (this also rejects trailing slashes).
   if (patternParts.length !== pathParts.length) return noMatch;
 
+  return matchSegments(patternParts, pathParts);
+}
+
+/**
+ * Like `matchPath`, but tolerates a pathname that continues past the pattern.
+ *
+ * This is how an *ancestor* in a matched chain reads its own params: the leaf
+ * of `/videowalls/:id/live/:cameraId` matches the whole path, while the
+ * `/videowalls/:id` layout above it still has to know which wall it is
+ * rendering. `matchPath` refuses that (its segment counts differ), which is
+ * correct for choosing a leaf and wrong for reading an ancestor.
+ *
+ * Identical to `matchPath` when the counts do line up, so callers walking a
+ * chain can use it for every entry, leaf included.
+ */
+export function matchPathPrefix(
+  pattern: string,
+  pathname: string,
+): { matched: boolean; params: Record<string, string> } {
+  const patternParts = splitPath(pattern);
+  const pathParts = splitPath(pathname);
+
+  // A wildcard already consumes the remainder — nothing to relax.
+  if (patternParts.indexOf("*") !== -1) return matchPath(pattern, pathname);
+
+  if (pathParts.length < patternParts.length) return { matched: false, params: {} };
+
+  return matchSegments(patternParts, pathParts);
+}
+
+/**
+ * Compares pattern segments against the leading path segments, collecting
+ * params. Extra trailing path segments are the caller's problem to reject.
+ */
+function matchSegments(
+  patternParts: string[],
+  pathParts: string[],
+): { matched: boolean; params: Record<string, string> } {
   const params: Record<string, string> = {};
   for (let i = 0; i < patternParts.length; i++) {
     const p = patternParts[i]!;
     const v = pathParts[i]!;
     if (p.startsWith(":")) {
       // Empty segment (e.g. trailing slash) must not match a param slot.
-      if (!v) return noMatch;
+      if (!v) return { matched: false, params: {} };
       params[p.slice(1)] = decodeSegment(v);
     } else if (p !== v) {
-      return noMatch;
+      return { matched: false, params: {} };
     }
   }
   return { matched: true, params };

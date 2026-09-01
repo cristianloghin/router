@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 import { useRouterStore } from "../router/context";
 import { useRouteRegistry } from "../router/registryContext";
 import { useAppConfig } from "../provider/context";
-import { matchPath } from "../router/matcher";
+import { matchPathPrefix } from "../router/matcher";
 import { RouteBoundary, resolveLoading } from "../router/boundaries";
 import type { RouteErrorProps } from "../router/types";
 
@@ -163,12 +163,18 @@ export function RouterView({
   for (let i = chain.length - 1; i >= 0; i--) {
     const key = chain[i]!;
     const def = routeMap[key]!;
-    const { params } = matchPath(key, path);
+    // Prefix match, not exact: an ancestor's pattern is shorter than the path
+    // whenever a deeper child is matched, and `/videowalls/:id` still has to
+    // know which wall it is rendering while `/videowalls/:id/live` is on
+    // screen. For the leaf this is the same match `matchPath` would give.
+    const { params } = matchPathPrefix(key, path);
 
-    // If this is the innermost (leaf) and the parent has an index, use it.
+    // The chain's leaf *is* the matched route, so reaching it means the path
+    // terminates here and this route's index (if any) is what fills its
+    // outlet. Testing `path === key` instead only ever held for static keys —
+    // a parametric route's index never rendered at all.
     const isLeaf = i === chain.length - 1;
-    const isExactParent =
-      isLeaf && path === key && def.index !== undefined;
+    const isExactParent = isLeaf && def.index !== undefined;
 
     const InnerComponent = def.component;
     const capturedOutlet = outlet;

@@ -11,6 +11,13 @@ and delete the entry — same lifecycle as the original spec docs).
 > adoption goal is workspaces: user-created "scratch" walls and other views
 > the app doesn't natively support, as tabbed workspaces.
 
+> Also shipped: the **nesting-at-depth verification** (item 5). It found two
+> real defects rather than confirming the model — a parametric route's `index`
+> never rendered, and an ancestor layout received empty params whenever a
+> deeper child matched. Both fixed; the four-level tree now lives in
+> `__tests__/deep-nesting.test.tsx` and in the playground under
+> `/videowalls`.
+
 > Shipped and graduated out — the **Planner correctness gaps** (assessed
 > 2026-09-01), kept here as a key because entries below and the git history
 > still refer to them by label:
@@ -108,15 +115,6 @@ Second consumer: Planner needs `/` → `/day`, because the PWA's `start_url` is
 the bare base and every cold launch lands there. P1 has shipped, so the
 initial match is now an evaluated step (`evaluateInitialRoute()`) rather than
 a hole — a `redirect` entry has to be honoured there too, alongside the guard.
-
-### 5. Nesting inference at depth — verification, not a feature
-
-The prefix-inference + index-component model has only been proven on a flat
-three-route app (local-vms). vms-frontend's walls tree is four levels with an
-index component at every level and no-remount parent layouts. Before any
-adoption: playground scenario reproducing that tree shape (static-vs-param
-sibling priority `/videowalls/new` vs `/videowalls/:id` is already covered by
-specificity sorting; the depth × index × transition interplay is not).
 
 ### Explicitly rejected (decisions, kept so they aren't relitigated)
 

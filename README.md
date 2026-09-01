@@ -211,6 +211,12 @@ The `href` escape hatch renders whatever you give it, with one exception:
 
 Parent–child relationships are inferred from path prefixes. A parent route receives its matched child as the `outlet` prop.
 
+Nesting has no depth limit, and both features work at any level: a parametric
+route may declare an `index`, and a layout receives the params its *own*
+pattern declares even while a deeper child is on screen — `/videowalls/:id`
+knows its `id` while `/videowalls/:id/live/:cameraId` is rendering. Layouts are
+not remounted as the user moves between their children.
+
 ```tsx
 const routes = defineRoutes({
   "/settings":          { component: SettingsLayout, index: SettingsIndex },

@@ -990,3 +990,38 @@ describe("AppProvider: async guards on initial load", () => {
     expect(container.textContent).toContain("DENIED");
   });
 });
+
+// ─── Guards on ancestor routes at depth ───────────────────────────────────────
+
+/**
+ * Guards run over the whole matched chain. An ancestor's pattern is shorter
+ * than the target path whenever a deeper child is matched, so its guard used
+ * to be handed an empty params object — a guard on /videowalls/:id could not
+ * tell which wall it was being asked about.
+ */
+describe("AppProvider: ancestor guard params at depth", () => {
+  it("gives an ancestor guard its own params when a deeper child is the target", () => {
+    window.history.replaceState(null, "", "/");
+    const seen: Record<string, string>[] = [];
+    const map = defineRoutes({
+      "/": { component: () => null },
+      "/videowalls/:id": {
+        component: () => null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        guard: (params: any) => { seen.push({ ...params }); return true; },
+      },
+      "/videowalls/:id/live": { component: () => <div>LIVE</div> },
+    });
+    const { result } = renderHook(() => useNavigation(), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <AppProvider routes={map} workspaces={workspaces} config={{ adapter: "stack" }}>
+          {children}
+        </AppProvider>
+      ),
+    });
+
+    act(() => { result.current.navigate("/videowalls/w7/live"); });
+
+    expect(seen).toEqual([{ id: "w7" }]);
+  });
+});

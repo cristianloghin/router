@@ -97,6 +97,116 @@ export function SecuritySettings() {
   return <p>Security settings child route.</p>;
 }
 
+// ─── Deep nesting (roadmap item 5 scenario) ──────────────────────────────────
+//
+// Reproduces vms-frontend's walls tree: four levels, an index component at
+// every level that has children, and a static sibling (`/videowalls/new`)
+// competing with a parametric one (`/videowalls/:id`) at the same depth.
+//
+// Each layout shows its own mount time. Moving between children must leave
+// those timestamps frozen — a changing timestamp means the layout remounted
+// and any state it held was lost.
+
+function MountStamp({ label }: { label: string }) {
+  const [mountedAt] = useState(() => new Date().toLocaleTimeString());
+  return (
+    <p className="muted">
+      {label} mounted at {mountedAt}
+    </p>
+  );
+}
+
+export function WallsShell({ outlet }: RouteComponentProps<{}>) {
+  return (
+    <div className="card">
+      <h2>/videowalls — level 1 shell</h2>
+      <MountStamp label="Shell" />
+      <div className="row">
+        <Link to="/videowalls">Index</Link>
+        <Link to="/videowalls/new">New (static sibling)</Link>
+        <Link to="/videowalls/:id" params={{ id: "w1" }}>Wall w1</Link>
+        <Link to="/videowalls/:id" params={{ id: "w2" }}>Wall w2</Link>
+      </div>
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>{outlet}</div>
+    </div>
+  );
+}
+
+export function WallsIndex() {
+  return <p>Level-1 index — rendered when <code>/videowalls</code> matches exactly.</p>;
+}
+
+export function NewWall() {
+  return (
+    <p>
+      Static sibling. <code>/videowalls/new</code> wins over
+      <code> /videowalls/:id</code> on specificity.
+    </p>
+  );
+}
+
+export function SelectedWall({ outlet }: RouteComponentProps<{}>) {
+  // Typed via Register, per the RouteComponentProps quirk in DEV.md.
+  const { id } = useParams("/videowalls/:id");
+  const params = { id };
+  return (
+    <div>
+      <h3>/videowalls/:id — level 2 (id: {params.id})</h3>
+      <MountStamp label="Selected wall" />
+      <div className="row">
+        <Link to="/videowalls/:id" params={{ id: params.id }}>Index</Link>
+        <Link to="/videowalls/:id/live" params={{ id: params.id }}>Live</Link>
+        <Link to="/videowalls/:id/recording" params={{ id: params.id }}>Recording</Link>
+      </div>
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>{outlet}</div>
+    </div>
+  );
+}
+
+export function WallIndex() {
+  return <p>Level-2 index — the wall with no mode selected.</p>;
+}
+
+export function LiveWall({ outlet }: RouteComponentProps<{}>) {
+  const { id } = useParams("/videowalls/:id/live");
+  const params = { id };
+  return (
+    <div>
+      <h4>/videowalls/:id/live — level 3 (id: {params.id})</h4>
+      <MountStamp label="Live" />
+      <div className="row">
+        <Link to="/videowalls/:id/live" params={{ id: params.id }}>Index</Link>
+        <Link to="/videowalls/:id/live/:cameraId" params={{ id: params.id, cameraId: "cam-1" }}>
+          Camera 1
+        </Link>
+        <Link to="/videowalls/:id/live/:cameraId" params={{ id: params.id, cameraId: "cam-2" }}>
+          Camera 2
+        </Link>
+      </div>
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>{outlet}</div>
+    </div>
+  );
+}
+
+export function LiveIndex() {
+  return <p>Level-3 index — live mode with no camera selected.</p>;
+}
+
+export function CameraDetail() {
+  const params = useParams("/videowalls/:id/live/:cameraId");
+  return (
+    <p>
+      Level-4 leaf. Wall <code>{params.id}</code>, camera <code>{params.cameraId}</code>.
+      Both params come from different levels of the chain.
+    </p>
+  );
+}
+
+export function RecordingWall() {
+  const { id } = useParams("/videowalls/:id/recording");
+  return <p>Recording mode for wall <code>{id}</code>.</p>;
+}
+
 // ─── Wildcard ─────────────────────────────────────────────────────────────────
 
 export function FileExplorer() {
