@@ -11,6 +11,15 @@ and delete the entry — same lifecycle as the original spec docs).
 > adoption goal is workspaces: user-created "scratch" walls and other views
 > the app doesn't natively support, as tabbed workspaces.
 
+> Shipped and graduated out — the **Planner correctness gaps** (assessed
+> 2026-09-01), kept here as a key because entries below and the git history
+> still refer to them by label:
+> **P1** guards on the initial match and on popstate · **P2** `usePrompt`
+> honoured on browser back/forward · **P3** the history cursor tracking
+> browser back/forward · **P4** `useQueryState` typing an absent param as
+> optional, plus thunk defaults. Behaviour and invariants are in DEV.md and
+> README.md.
+
 Usage inventory that drove this list (vms-frontend, RR v7):
 `useNavigate` ×18, `useParams` ×13, `useOutletContext` ×7, `useLocation` ×5,
 `Outlet` ×5, `Link` ×5, `useSearchParams` ×2, `useMatches`+`handle` ×1,
@@ -117,54 +126,6 @@ specificity sorting; the depth × index × transition interplay is not).
 - **RR-style loaders / data APIs**: rejected. Adopting apps keep data in
   domain-layer TanStack Query hooks (DRSp); loaders would compete with that.
   See "query priming" below for the non-competing alternative.
-
----
-
-## Correctness gaps (Planner adoption)
-
-> Provenance: assessing the library against **Planner** (2026-09-01) — an
-> installed PWA mid-restructure to DRSp, replacing `useState<Tab>` navigation
-> with real routes. Its first step (five tab routes behind an imperative auth
-> gate) needs nothing below and ships against 0.8.0; each entry names the later
-> step it blocks.
-
-P4 is what is left of this group. P1 (guards on the initial match and on
-popstate) and P3 (the history cursor tracking browser back/forward) shipped
-together, closing the shared root cause: navigation the router did not
-initiate is no longer second-class — `handlePopState` now runs the prompt, the
-guard and the cursor, and `evaluateInitialRoute()` guards the launch route.
-See DEV.md for the invariants, including why the initial guard needs a render
-state and the later ones do not.
-
-### P4. `useQueryState` types a missing param as present
-
-`InferQueryState` maps every key to a non-optional type
-(`utils/params.ts:20-22`) while `default` is itself optional (`:5-8`), and the
-implementation assigns `result[key] = def` — `undefined` — when the param is
-absent and no default was declared (`hooks.ts:187-188`). The type says
-`string`; the value is `undefined`.
-
-Planner hits this on its first date-bearing route: `/day?date=` should default
-to **today**, which no static literal can express, so the app must omit
-`default` and take the type lie. Same for `/event/new`'s optional `allDay` /
-`startMin` / `endMin`.
-
-Proposed shape — two parts, the second is what makes `?date=` expressible at
-all:
-
-```tsx
-const [{ date, allDay }] = useQueryState({
-  date:   { type: "string", default: () => todayISO() },  // read-time default
-  allDay: { type: "boolean" },                            // boolean | undefined
-})
-```
-
-- A key is optional in `InferQueryState` when its descriptor declares no
-  `default`.
-- `default` accepts a thunk as well as a literal.
-
-Blocks: putting `?date=` / `?weekStart=` / `?month=` in the URL — Planner's
-second routing step.
 
 ---
 
@@ -327,9 +288,7 @@ job only.
 3. Redirects (4) + route meta (3) — small parity wins, do together.
    Redirects hook into the initial-match evaluation P1 added.
 4. Outlet context (2) — small; decide the shape first.
-5. P4 (`useQueryState` optionality) — independent of everything else; do when
-   Planner puts dates in the URL.
-6. Scoped modules (B), priming (C), view transitions (D) — pay off as more
+5. Scoped modules (B), priming (C), view transitions (D) — pay off as more
    sections adopt; none block anything.
 
 Security items are order-independent of the above and individually small;

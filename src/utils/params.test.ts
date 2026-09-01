@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
+import type { InferQueryState } from "./params";
 import { serialize, deserialize, paramsToRecord, recordToParams } from "./params";
 
 // ─── Phase 7: Edge cases ──────────────────────────────────────────────────────
@@ -249,5 +250,62 @@ describe("deserialize: boolean strictness", () => {
 
   it("deserialize('true', 'boolean') → true", () => {
     expect(deserialize("true", "boolean")).toBe(true);
+  });
+});
+
+// ─── InferQueryState optionality ──────────────────────────────────────────────
+
+/**
+ * Roadmap P4. Every key used to be mapped to a non-optional type while
+ * `default` was itself optional, so a schema with no default typed an absent
+ * param as present — the type said `string`, the value was `undefined`.
+ * Compile-time assertions, enforced by `tsc --noEmit`.
+ */
+describe("InferQueryState", () => {
+  it("makes a key with a default required", () => {
+    type S = InferQueryState<{ page: { type: "number"; default: 1 } }>;
+    expectTypeOf<S>().toEqualTypeOf<{ page: number }>();
+    expect(true).toBe(true);
+  });
+
+  it("makes a key without a default optional", () => {
+    type S = InferQueryState<{ allDay: { type: "boolean" } }>;
+    expectTypeOf<S>().toEqualTypeOf<{ allDay?: boolean }>();
+    expect(true).toBe(true);
+  });
+
+  it("mixes required and optional keys in one schema", () => {
+    type S = InferQueryState<{
+      date: { type: "string"; default: () => string };
+      allDay: { type: "boolean" };
+      tags: { type: "string[]" };
+    }>;
+    expectTypeOf<S>().toEqualTypeOf<{
+      date: string;
+      allDay?: boolean;
+      tags?: string[];
+    }>();
+    expect(true).toBe(true);
+  });
+
+  it("treats a thunk default the same as a literal one", () => {
+    type Literal = InferQueryState<{ d: { type: "string"; default: "x" } }>;
+    type Thunk = InferQueryState<{ d: { type: "string"; default: () => string } }>;
+    expectTypeOf<Literal>().toEqualTypeOf<Thunk>();
+    expect(true).toBe(true);
+  });
+
+  it("infers the value type from `type`, not from the default", () => {
+    type S = InferQueryState<{
+      n: { type: "number"; default: 0 };
+      b: { type: "boolean"; default: false };
+      sa: { type: "string[]"; default: [] };
+      na: { type: "number[]"; default: [] };
+    }>;
+    expectTypeOf<S["n"]>().toEqualTypeOf<number>();
+    expectTypeOf<S["b"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<S["sa"]>().toEqualTypeOf<string[]>();
+    expectTypeOf<S["na"]>().toEqualTypeOf<number[]>();
+    expect(true).toBe(true);
   });
 });

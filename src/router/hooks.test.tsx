@@ -274,6 +274,104 @@ describe("useMeta", () => {
   });
 });
 
+// ─── useQueryState: absent params and thunk defaults ─────────────────────────
+
+/**
+ * Roadmap P4. A key with no declared default used to be assigned `undefined`
+ * while its type claimed a value; it is now omitted, matching its optional
+ * type. Thunk defaults exist for defaults no static literal can express.
+ */
+describe("useQueryState: absent params", () => {
+  function atUrl(url: string) {
+    window.history.replaceState(null, "", url);
+    store.destroy();
+    store = new RouterStore({});
+    return store;
+  }
+
+  it("omits a key that is absent and has no default", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ allDay: { type: "boolean" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect("allDay" in result.current[0]).toBe(false);
+    expect(result.current[0].allDay).toBeUndefined();
+  });
+
+  it("reads the key normally when it is present", () => {
+    atUrl("/?allDay=true");
+    const { result } = renderHook(
+      () => useQueryState({ allDay: { type: "boolean" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].allDay).toBe(true);
+  });
+
+  it("omits an absent array key with no default", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ tags: { type: "string[]" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect("tags" in result.current[0]).toBe(false);
+  });
+
+  it("calls a thunk default when the param is absent", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ date: { type: "string", default: () => "2026-09-01" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].date).toBe("2026-09-01");
+  });
+
+  it("does not call the thunk when the param is present", () => {
+    atUrl("/?date=2026-01-01");
+    const thunk = vi.fn(() => "2026-09-01");
+    const { result } = renderHook(
+      () => useQueryState({ date: { type: "string", default: thunk } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].date).toBe("2026-01-01");
+    expect(thunk).not.toHaveBeenCalled();
+  });
+
+  it("still honours a literal default", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ page: { type: "number", default: 1 } }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].page).toBe(1);
+  });
+
+  it("mixes a defaulted and an undefaulted key", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({
+        date: { type: "string", default: () => "2026-09-01" },
+        allDay: { type: "boolean" },
+      }),
+      { wrapper: makeWrapper(store) },
+    );
+    expect(result.current[0].date).toBe("2026-09-01");
+    expect("allDay" in result.current[0]).toBe(false);
+  });
+
+  it("a thunk default is not written to the URL until the setter runs", () => {
+    atUrl("/");
+    const { result } = renderHook(
+      () => useQueryState({ date: { type: "string", default: () => "2026-09-01" } }),
+      { wrapper: makeWrapper(store) },
+    );
+    // Read-time default: the value is served, the address bar stays clean.
+    expect(store.getSnapshot().searchParams.get("date")).toBeNull();
+    act(() => { result.current[1]({ date: "2026-09-02" }); });
+    expect(store.getSnapshot().searchParams.get("date")).toBe("2026-09-02");
+  });
+});
+
 // ─── usePrompt ────────────────────────────────────────────────────────────────
 
 describe("usePrompt", () => {

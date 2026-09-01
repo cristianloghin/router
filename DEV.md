@@ -115,6 +115,17 @@ Module ownership:
   echoes the address bar's own path back to clear the query string —
   rewriting it to `toExternal(state.path)` would clobber the bar off a
   workspace, since `state.path` holds the retained *route* path there.
+- **`useQueryState` optionality is driven by `default`, not by `type`** —
+  `HasDefault` tests `TDescriptor extends { default: unknown }`, which an
+  optional `default?:` deliberately fails, so a schema that omits the key is
+  reported as having none. The runtime has to match: an absent param with no
+  default is *omitted* from the result rather than set to `undefined`, which
+  is what `exactOptionalPropertyTypes` requires of an optional property. A
+  function-valued `default` is a read-time thunk — unambiguous because no
+  `ParamType` deserializes to a function — and is evaluated inside the
+  `useMemo` keyed on `searchParams`, so it re-runs when the query changes and
+  not on a timer. Type-level regression tests live in `utils/params.test.ts`
+  and are enforced by `tsc --noEmit`.
 - **`RouterState.path` is a pathname — never a query or a fragment.** It is
   what `RouterView`, `useRoute`, `getMatchChain` and every guard match on, so
   a query smuggled into it matches no route at all. `navigate()` therefore

@@ -523,9 +523,9 @@ function FilterPanel() {
     limit:  { type: "number",   default: 20 },
   });
 
-  // filters.page   → number
-  // filters.active → boolean
-  // filters.tags   → string[]
+  // filters.page   → number              (default declared)
+  // filters.active → boolean             (default declared)
+  // filters.tags   → string[] | undefined  (no default — may be absent)
 
   return (
     <button onClick={() => setFilters({ page: filters.page + 1 })}>
@@ -534,6 +534,23 @@ function FilterPanel() {
   );
 }
 ```
+
+**Declaring a `default` is what makes a key required.** Without one, an absent
+param yields no value, and the key is typed optional and omitted from the
+returned object — `"tags" in filters` is `false`, not `tags === undefined`.
+
+`default` also accepts a **thunk**, called at read time. That is the only way
+to express a default no static literal can:
+
+```tsx
+const [{ date, allDay }] = useQueryState({
+  date:   { type: "string",  default: () => todayISO() },  // date   → string
+  allDay: { type: "boolean" },                             // allDay → boolean | undefined
+});
+```
+
+A thunk default is served on read but not written to the URL — the address bar
+stays clean until something calls the setter.
 
 `setFilters` merges with the current state (partial update). Array values are serialized as repeated query params (`?tags=a&tags=b`).
 
