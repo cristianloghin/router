@@ -45,12 +45,18 @@ export class WorkspaceGuard {
       }
 
       case "credential": {
+        // Fail closed when there is no way to obtain credentials (S1/S2). The
+        // old fallback handed `validate` an empty username and password, so a
+        // validator that treats empties leniently would *grant* access to a
+        // guard that was never actually asked anything. AppProvider always
+        // wires requestCredential, so this only bites a hand-constructed
+        // WorkspaceGuard — but "nothing to ask with" must mean no, not yes.
         const input =
           credentialOverride ??
           this.config.credentialInput ??
           (this.config.requestCredential
             ? await this.config.requestCredential(context.workspaceId)
-            : { username: "", password: "" });
+            : null);
         if (input === null) return false;
         const result = await Promise.resolve(rule.validate(input));
         return result;

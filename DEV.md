@@ -223,6 +223,17 @@ Module ownership:
   `Register` augmentation in scope (the playground compiles src/ with one).
   Documented footgun: a selector returning a fresh collection under the
   default `Object.is` skips nothing — `shallowEqual` is exported for that.
+- **Auth verdicts are never persisted** (S1) — `persistToStorage` writes whole
+  descriptors, `auth.granted` included, so `restoreFromStorage` strips it back
+  to `false` on the way in and `reevaluateRestoredAuth()` re-runs each rule.
+  Without that pass a restored workspace would sit ungranted forever, so the
+  two belong together. It skips the id `resolveDirectAccess()` returns —
+  otherwise two concurrent evaluations race to `setAuthGranted` for the same
+  workspace, with different `isDirectAccess` values. `credential` rules are
+  skipped entirely: auto-prompting on restore would throw a password dialog
+  for a background workspace nobody opened. The framing this serves is in
+  README's auth section — client-side gating, not security; `granted` is
+  editable in localStorage, so it is attacker-supplied input, not state.
 - **Persistence**: localStorage key `ws:v{version}` (localStorage, not
   sessionStorage — workspaces must survive a PWA being closed and reopened);
   version mismatch discards (no migration by design). Persistence is

@@ -669,7 +669,29 @@ const workspaces = defineWorkspaces({
 
 ### Auth rules
 
-Auth is evaluated before `open()` proceeds and when a workspace URL is accessed directly (e.g. in a new tab). Failed auth rejects the `open()` promise with a `WorkspaceError`.
+> **Workspace auth is client-side gating, not security.** `time-limited` runs
+> against the client's own clock, `credential` and `custom` are functions your
+> app supplies, and `auth.granted` lives in memory and in localStorage, where
+> anyone can edit it. Treat these rules as UI affordances — they decide what
+> the interface offers, not what a user can obtain. **Any real resource a
+> workspace reaches (streams, APIs, files) must be authorized server-side, per
+> request.**
+
+Auth is evaluated before `open()` proceeds, when a workspace URL is accessed
+directly (e.g. in a new tab), and again for every workspace brought back by
+persistence on reload. Failed auth rejects the `open()` promise with a
+`WorkspaceError`.
+
+**Grants are never persisted.** A workspace restored from storage always comes
+back ungranted and has its rule re-run, so an expired `time-limited` window
+does not survive a reload and a hand-edited `granted: true` in localStorage
+buys nothing. Restored `credential` workspaces stay ungranted and are *not*
+prompted — a background workspace must not throw a password dialog on reload;
+the `AuthGate` collects credentials when the user actually opens it.
+
+**`credential` fails closed.** If no credential source is reachable — neither
+the built-in prompt nor a configured `credentialInput` — the rule returns
+`false` rather than validating empty strings.
 
 ```tsx
 // Public — no auth required

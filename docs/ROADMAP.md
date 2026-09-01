@@ -219,33 +219,11 @@ feel finished.
 > items below are hardening. Prod deps audit clean; the 11 npm-audit findings
 > are all dev-toolchain (vite/vitest/ws) — `npm audit fix` when convenient.
 
-Framing that governs S1–S3: workspace auth is **client-side gating, not
-security**. `time-limited` runs on the client clock, `credential`/`custom`
-are app-supplied functions, and `auth.granted` is flippable from devtools.
-Real resources (streams, APIs) must be authorized server-side per request.
-
-### S1. Re-evaluate auth on persistence restore
-
-`persistToStorage` writes descriptors including `auth.granted: true`;
-`restoreFromStorage` hands them back as-is. Only the workspace matching the
-current URL is reset and re-checked (`resolveDirectAccess`) — background
-restored workspaces come back pre-granted indefinitely, `time-limited`
-grants survive their own expiry across reloads, and the grant is editable in
-localStorage. Fix: strip `granted` to `false` on restore and re-evaluate
-each rule. (`WorkspaceManager.restoreFromStorage`)
-
-### S2. Fail closed on missing credential source
-
-When neither `credentialInput` nor `requestCredential` is configured, the
-`credential` rule silently validates `{username: "", password: ""}`
-(`WorkspaceGuard.evaluate`). AppProvider always wires the prompt, so this
-only bites direct `WorkspaceGuard` construction — but a `validate` that
-mishandles empties then grants. Return `false` instead.
-
-### S3. README caveat on client-side auth
-
-One paragraph in the auth section stating the framing above, so consumers
-don't over-trust the gate. Cheapest item on this list.
+Framing that governs this whole section: workspace auth is **client-side
+gating, not security**. `time-limited` runs on the client clock,
+`credential`/`custom` are app-supplied functions, and `auth.granted` is
+flippable from devtools. Real resources (streams, APIs) must be authorized
+server-side per request. This now says so in README's auth section (S3).
 
 ### S4. URI-encode interpolated URL parts
 
@@ -291,6 +269,7 @@ job only.
 5. Scoped modules (B), priming (C), view transitions (D) — pay off as more
    sections adopt; none block anything.
 
-Security items are order-independent of the above and individually small;
-S1–S3 first (they concern the production consumer's auth posture), the rest
-opportunistically.
+Security items are order-independent of the above and individually small.
+S1–S3 have shipped (auth is re-evaluated on restore, `credential` fails closed
+with no credential source, and README carries the client-side-gating caveat);
+S4–S7 remain, to be taken opportunistically.

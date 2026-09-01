@@ -120,9 +120,14 @@ function makeManager(opts: {
   maxWorkspaces?: number;
   getCurrentPath?: () => string;
   adapterType?: WorkspaceAdapter["type"];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  extraTemplates?: Record<string, any>;
+  guard?: WorkspaceGuard;
 } = {}) {
   const adapter = makeMockAdapter(opts.initialWorkspaces ?? [], opts.adapterType ?? "stack");
-  const guard = new WorkspaceGuard({ isAuthenticated: opts.isAuthenticated ?? (() => true) });
+  const guard =
+    opts.guard ??
+    new WorkspaceGuard({ isAuthenticated: opts.isAuthenticated ?? (() => true) });
   const navigate = opts.navigate ?? vi.fn();
   const bus = makeMockBus();
   const templates = {
@@ -141,6 +146,7 @@ function makeManager(opts: {
       auth: { type: "public" as const },
       persistent: false,
     },
+    ...(opts.extraTemplates ?? {}),
   };
   const manager = new WorkspaceManager({
     adapter,
@@ -1256,5 +1262,192 @@ describe("WorkspaceManager: workspace:current-changed", () => {
     await manager.close(a.id);
 
     expect(seen).toEqual([[a.id, null]]);
+  });
+});
+
+// ─── S1: auth is re-evaluated on persistence restore ─────────────────────────
+
+/**
+ * Security hardening S1. `persistToStorage` writes descriptors including
+ * `auth.granted: true` and `restoreFromStorage` used to hand them straight
+ * back, so a background workspace came back pre-granted indefinitely: a
+ * time-limited grant outlived its own expiry across a reload, and the flag is
+ * editable in localStorage, which makes it attacker-supplied input.
+ *
+ * Framing (unchanged): this is client-side gating, not security. Real
+ * resources must still be authorized server-side per request.
+ */
+describe("WorkspaceManager: auth re-evaluation on restore (S1)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.history.replaceState(null, "", "/");
+  });
+
+  function seed(state: PersistedShape): void {
+    window.localStorage.setItem("ws:v1", JSON.stringify(state));
+  }
+
+  /** A descriptor persisted as already granted. */
+  function grantedDescriptor(id: string, template: string, type: string): WorkspaceDescriptor {
+    const d = makeDescriptor(id, template, {});
+    return { ...d, auth: { type, granted: true } } as WorkspaceDescriptor;
+  }
+
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("hands adapter.restoreState descriptors with the grant stripped", () => {
+    seed({
+      workspaces: [grantedDescriptor("ws-r1", "secured", "authenticated")],
+      currentId: null,
+      origins: {},
+    });
+    const { adapter } = makeManager({ persist: { version: 1 }, isAuthenticated: () => false });
+    const [restored] = (adapter.restoreState as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      WorkspaceDescriptor[],
+    ];
+    expect(restored[0]!.auth.granted).toBe(false);
+  });
+
+  it("does not restore a grant whose rule no longer passes", async () => {
+    seed({
+      workspaces: [grantedDescriptor("ws-r1", "secured", "authenticated")],
+      currentId: null,
+      origins: {},
+    });
+    const { manager } = makeManager({ persist: { version: 1 }, isAuthenticated: () => false });
+    await flush();
+    expect(manager.getAll().find((w) => w.id === "ws-r1")!.auth.granted).toBe(false);
+  });
+
+  it("re-grants when the rule still passes", async () => {
+    seed({
+      workspaces: [grantedDescriptor("ws-r1", "secured", "authenticated")],
+      currentId: null,
+      origins: {},
+    });
+    const { manager } = makeManager({ persist: { version: 1 }, isAuthenticated: () => true });
+    await flush();
+    expect(manager.getAll().find((w) => w.id === "ws-r1")!.auth.granted).toBe(true);
+  });
+
+  it("does not let a time-limited grant outlive its own expiry", async () => {
+    seed({
+      workspaces: [grantedDescriptor("ws-t", "timed", "time-limited")],
+      currentId: null,
+      origins: {},
+    });
+    const { manager } = makeManager({
+      persist: { version: 1 },
+      extraTemplates: {
+        timed: {
+          component: () => null,
+          auth: { type: "time-limited" as const, expiresAt: Date.now() - 1 },
+        },
+      },
+    });
+    await flush();
+    expect(manager.getAll().find((w) => w.id === "ws-t")!.auth.granted).toBe(false);
+  });
+
+  it("re-grants a time-limited window that has not expired", async () => {
+    seed({
+      workspaces: [grantedDescriptor("ws-t", "timed", "time-limited")],
+      currentId: null,
+      origins: {},
+    });
+    const { manager } = makeManager({
+      persist: { version: 1 },
+      extraTemplates: {
+        timed: {
+          component: () => null,
+          auth: { type: "time-limited" as const, expiresAt: Date.now() + 60_000 },
+        },
+      },
+    });
+    await flush();
+    expect(manager.getAll().find((w) => w.id === "ws-t")!.auth.granted).toBe(true);
+  });
+
+  it("ignores a hand-edited grant for a custom rule that now refuses", async () => {
+    const check = vi.fn().mockResolvedValue(false);
+    seed({
+      workspaces: [grantedDescriptor("ws-c", "checked", "custom")],
+      currentId: null,
+      origins: {},
+    });
+    const { manager } = makeManager({
+      persist: { version: 1 },
+      extraTemplates: {
+        checked: { component: () => null, auth: { type: "custom" as const, check } },
+      },
+    });
+    await flush();
+    expect(check).toHaveBeenCalled();
+    expect(manager.getAll().find((w) => w.id === "ws-c")!.auth.granted).toBe(false);
+  });
+
+  it("grants public workspaces on restore", async () => {
+    seed({
+      workspaces: [grantedDescriptor("ws-p", "cam", "public")],
+      currentId: null,
+      origins: {},
+    });
+    const { manager } = makeManager({ persist: { version: 1 } });
+    await flush();
+    expect(manager.getAll().find((w) => w.id === "ws-p")!.auth.granted).toBe(true);
+  });
+
+  it("leaves credential workspaces ungranted without prompting", async () => {
+    const requestCredential = vi.fn().mockResolvedValue({ username: "u", password: "p" });
+    seed({
+      workspaces: [grantedDescriptor("ws-k", "keyed", "credential")],
+      currentId: null,
+      origins: {},
+    });
+    const { manager } = makeManager({
+      persist: { version: 1 },
+      guard: new WorkspaceGuard({ isAuthenticated: () => true, requestCredential }),
+      extraTemplates: {
+        keyed: {
+          component: () => null,
+          auth: { type: "credential" as const, validate: () => true },
+        },
+      },
+    });
+    await flush();
+    // A background workspace must not throw a password dialog on reload.
+    expect(requestCredential).not.toHaveBeenCalled();
+    expect(manager.getAll().find((w) => w.id === "ws-k")!.auth.granted).toBe(false);
+  });
+
+  it("evaluates the direct-access workspace once, not twice", async () => {
+    const check = vi.fn().mockResolvedValue(true);
+    const d = grantedDescriptor("ws-c", "checked", "custom");
+    seed({ workspaces: [d], currentId: d.id, origins: {} });
+    window.history.replaceState(null, "", `/workspace/checked/${d.id}`);
+    makeManager({
+      persist: { version: 1 },
+      extraTemplates: {
+        checked: { component: () => null, auth: { type: "custom" as const, check } },
+      },
+    });
+    await flush();
+    expect(check).toHaveBeenCalledTimes(1);
+    // ...and with the direct-access flag, which is resolveDirectAccess's call.
+    expect(check).toHaveBeenCalledWith(expect.objectContaining({ isDirectAccess: true }));
+  });
+
+  it("re-evaluates every restored workspace, not just the foreground one", async () => {
+    seed({
+      workspaces: [
+        grantedDescriptor("ws-1", "secured", "authenticated"),
+        grantedDescriptor("ws-2", "secured", "authenticated"),
+      ],
+      currentId: "ws-1",
+      origins: {},
+    });
+    const { manager } = makeManager({ persist: { version: 1 }, isAuthenticated: () => false });
+    await flush();
+    expect(manager.getAll().map((w) => w.auth.granted)).toEqual([false, false]);
   });
 });
