@@ -4,9 +4,9 @@ Working list of library changes, to be picked up incrementally. Items graduate
 out of this file when implemented (document the result in DEV.md / README.md
 and delete the entry — same lifecycle as the original spec docs).
 
-> Provenance: everything here comes from assessing the library as a React
-> Router v7 replacement for **vms-frontend** (2026-08-03), a 47-file RR
-> surface with a four-level nested route tree. The migration was judged
+> Provenance: the parity gaps and proposed features below come from assessing
+> the library as a React Router v7 replacement for **vms-frontend**
+> (2026-08-03), a 47-file RR surface with a four-level nested route tree. The migration was judged
 > feasible (~2–3 days) with the gaps below as the only real friction. The
 > adoption goal is workspaces: user-created "scratch" walls and other views
 > the app doesn't natively support, as tabbed workspaces.
@@ -42,6 +42,13 @@ Design notes: one active blocker per mount is fine (RR allows one globally);
 must interact sanely with guards (guards run after a blocker proceeds, not
 before it blocks) and with workspace navigation (swipe/scroll sync already
 bypasses prompts — blockers should follow the same rule).
+
+Second consumer: Planner's `EventEditor` holds an unsaved draft and already
+ships its own `ConfirmDialog` — a native `confirm()` inside an installed PWA
+reads as a defect. `usePrompt` now covers the browser's own back button
+(P2, shipped); `useBlocker` must inherit that popstate handling rather than
+re-open the hole — including the re-push-on-refusal and the two exemptions
+(workspace exit, query-only changes) documented in DEV.md.
 
 ### 2. Parent→child data through the outlet
 
@@ -88,6 +95,11 @@ defineRoutes({
 ~10 lines in the registry/matcher; `redirect` and `component` mutually
 exclusive.
 
+Second consumer: Planner needs `/` → `/day`, because the PWA's `start_url` is
+the bare base and every cold launch lands there. Note the interaction with
+**P1** — a `redirect` entry has to be honoured on the *initial* match, or it
+inherits the same hole guards have.
+
 ### 5. Nesting inference at depth — verification, not a feature
 
 The prefix-inference + index-component model has only been proven on a flat
@@ -105,6 +117,87 @@ specificity sorting; the depth × index × transition interplay is not).
 - **RR-style loaders / data APIs**: rejected. Adopting apps keep data in
   domain-layer TanStack Query hooks (DRSp); loaders would compete with that.
   See "query priming" below for the non-competing alternative.
+
+---
+
+## Correctness gaps (Planner adoption)
+
+> Provenance: assessing the library against **Planner** (2026-09-01) — an
+> installed PWA mid-restructure to DRSp, replacing `useState<Tab>` navigation
+> with real routes. Its first step (five tab routes behind an imperative auth
+> gate) needs nothing below and ships against 0.8.0; each entry names the later
+> step it blocks.
+
+P1 and P3 share one root cause: **navigation the router did not initiate is
+second-class.** `navigate()` evaluates guards, honours the prompt and maintains
+the history stack; the initial page load and the browser's own back/forward
+still miss the first and the third. (P2, the prompt, shipped — `handlePopState`
+consults `onPrompt` and re-pushes on refusal.) Likely one change to
+`RouterStore` plus a render state in `RouterView`.
+
+### P1. Guards never run on initial load or popstate
+
+The constructor seeds state straight from `window.location`
+(`RouterContext.ts:70-83`) and `handlePopState` sets state directly (`:314`).
+`routeGuard` is consulted in exactly one place — `navigate()` (`:167`).
+
+A cold deep-link to a guarded route therefore renders it ungated, and so does
+back/forward into one. Every guard test navigates away from `/` first
+(`AppProvider.test.tsx:451+`), so the case is untested, not merely undocumented.
+
+Blocks: any route-level auth. Planner's route table has `/login` guarded with
+"redirect away when authenticated" and everything else behind a session; until
+this lands that has to stay an imperative gate mounted above the router.
+
+Design note — **this needs a pending render state.** Planner's session resolves
+asynchronously (Supabase `getSession()`), so an initial guard returns a promise
+and `RouterView` has nothing to show while it settles. Fallback resolution
+should follow the existing order (route `loading` → `defaultLoading` → null).
+Whether a *failed* initial guard renders the redirect target or nothing is part
+of the same decision.
+
+### P3. The history stack does not track browser back/forward
+
+`HistoryStack` (`history.ts`) is pushed and popped only by `navigate()`
+(`RouterContext.ts:225-229`) and `back()` (`:245`); `handlePopState` reads
+`canGoBack` without popping (`:314`).
+
+After a browser back, `canGoBack` over-reports, and a later programmatic
+`back()` pops a stale entry and sets `path` to a value that no longer matches
+the URL.
+
+Lower urgency for Planner — its shell has no back affordance today — but it
+grows one as soon as editors become routes, and Android back is always live.
+
+### P4. `useQueryState` types a missing param as present
+
+`InferQueryState` maps every key to a non-optional type
+(`utils/params.ts:20-22`) while `default` is itself optional (`:5-8`), and the
+implementation assigns `result[key] = def` — `undefined` — when the param is
+absent and no default was declared (`hooks.ts:187-188`). The type says
+`string`; the value is `undefined`.
+
+Planner hits this on its first date-bearing route: `/day?date=` should default
+to **today**, which no static literal can express, so the app must omit
+`default` and take the type lie. Same for `/event/new`'s optional `allDay` /
+`startMin` / `endMin`.
+
+Proposed shape — two parts, the second is what makes `?date=` expressible at
+all:
+
+```tsx
+const [{ date, allDay }] = useQueryState({
+  date:   { type: "string", default: () => todayISO() },  // read-time default
+  allDay: { type: "boolean" },                            // boolean | undefined
+})
+```
+
+- A key is optional in `InferQueryState` when its descriptor declares no
+  `default`.
+- `default` accepts a thunk as well as a literal.
+
+Blocks: putting `?date=` / `?weekStart=` / `?month=` in the URL — Planner's
+second routing step.
 
 ---
 
@@ -260,12 +353,18 @@ job only.
 
 ## Suggested order
 
-1. `useBlocker` (1) — unblocks vms-frontend parity.
+1. `useBlocker` (1) — unblocks vms-frontend parity; sits on top of the
+   popstate prompt handling that shipped with P2.
 2. Named slots (A) — dissolves the walls section's worst contortion *during*
    its migration rather than porting the contortion.
-3. Redirects (4) + route meta (3) — small parity wins, do together.
-4. Outlet context (2) — small; decide the shape first.
-5. Scoped modules (B), priming (C), view transitions (D) — pay off as more
+3. P1 + P3 — one opening of the popstate / initial-match path; P1 unblocks
+   route-level auth for Planner.
+4. Redirects (4) + route meta (3) — small parity wins, do together. Redirects
+   want P1 landed first.
+5. Outlet context (2) — small; decide the shape first.
+6. P4 (`useQueryState` optionality) — independent of everything else; do when
+   Planner puts dates in the URL.
+7. Scoped modules (B), priming (C), view transitions (D) — pay off as more
    sections adopt; none block anything.
 
 Security items are order-independent of the above and individually small;
