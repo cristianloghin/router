@@ -134,6 +134,45 @@ Module ownership:
   (middle-click, "copy link address" and hover preview read a real URL), the
   `store.navigate()` call on click is internal. Translating once and reusing
   it double-applies the base.
+- **Every entry into a route consults `routeGuard`** — `navigate()`,
+  `handlePopState`, and `evaluateInitialRoute()` for the launch route. The
+  third exists because the `RouterStore` constructor finishes *before*
+  AppProvider wires `routeGuard`, so the store cannot guard its own initial
+  state; AppProvider calls it synchronously at the end of its init block,
+  which is still before `RouterView` first renders — that ordering is what
+  keeps a guarded route from flashing on screen ungated, so do not move the
+  call into an effect. The popstate and navigate arms need no render state:
+  a route is already on screen, so they withhold the commit while an async
+  verdict settles and the current route stays visible. Only the initial match
+  has nothing to show, hence `RouterState.initialGuard`
+  (`"resolved" | "pending" | "blocked"`), which `RouterView` renders as the
+  loading chain or the not-found fallback. It defaults to `"resolved"`, so a
+  store without a wired guard — every test harness — behaves as it always did.
+  Known edge, deliberately not handled: if an initial guard redirects to a
+  route that is itself blocked, the app stays on the loading state. That is
+  the safe failure mode for a guard cycle, and the cycle is the app's bug.
+- **`RouterView` tracks the store directly until the first route commits.**
+  The mirrored `path` + `startTransition` exist so a lazy route can load with
+  the *previous* route still visible. On a cold load there is no previous
+  route, and the mirror is actively harmful: when an initial guard resolves by
+  redirecting, the mirror still holds the guarded path for one frame, which
+  would commit the gated component after the guard rejected it.
+  `hasRenderedRouteRef` gates the handover — before the first route renders,
+  `path` is `storePath`; after, it is the mirror. Regression test:
+  "redirects without ever showing the guarded route".
+- **`HistoryStack` is entries + a cursor, not a push/pop stack** — the
+  browser's back and forward move a cursor, and a stack can only be walked one
+  way (roadmap P3). `entries[index]` is the path showing now, so `push`
+  records the *destination*, not where you came from. popstate carries no
+  direction, so each entry is stamped with its index under
+  `__mksRouterIndex`, merged into (never replacing) the app's `navigate`
+  `state`; an entry with no stamp predates the router and reads as index 0.
+  Workspace pushes reuse the *current* index rather than advancing, which is
+  what keeps `canGoBack` reading the same before a workspace opens and after
+  it closes (spec §4.13) while still stamping a real browser entry. `back()`
+  stays optimistic — it sets `path` from `peekBack()` before the browser's
+  popstate arrives — and the echoing popstate then reads the same index, so
+  the two agree rather than double-applying.
 - **Every exit from a route consults `onPrompt`** — `navigate()` (`:134`),
   `back()` (`:248`) and `handlePopState` (`:344`). The popstate arm is the
   awkward one: the event fires *after* the URL has moved, so a refusal is
@@ -145,7 +184,11 @@ Module ownership:
   query-only changes, matching `setSearchParams` (both sides of that
   comparison are pathnames — see the invariant below).
   `back()` does not double-prompt: it sets `state.path` synchronously, so the
-  browser's echoing popstate sees an unchanged path and falls through.
+  browser's echoing popstate sees an unchanged path and falls through — the
+  same `isRouteChange` test also stops it re-running the guard.
+  Order inside the handler is load-bearing: workspace check → prompt → guard →
+  commit. The prompt is the user's decision and comes first; a guard that
+  refuses after the user already confirmed would waste the confirmation.
 - **`RouterStore` lives in a ref but is destroyed in an effect cleanup** — so
   `destroy()` must stay reversible (`attach()` re-registers popstate) or
   StrictMode's simulated unmount permanently deafens the router. Regression

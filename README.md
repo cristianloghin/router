@@ -355,6 +355,29 @@ defineRoutes({
 });
 ```
 
+Guards run on **every** way into a route: `navigate()`, a cold load straight
+onto the route (a deep link, a bookmark, a PWA launch), and the browser's own
+back/forward.
+
+The cold-load case is the one with a visible difference, because there is no
+previous page to hold on screen while an async guard resolves:
+
+| Verdict | What renders |
+|---|---|
+| pending (a promise still in flight) | the route's own `loading`, else `defaultLoading`, else nothing |
+| `true` | the route |
+| a string | the redirect target |
+| `false` | the `RouterView` `fallback` — the same thing an unknown URL renders |
+
+A `false` verdict on a cold load has nowhere to stay put, so it renders the
+fallback rather than a blank screen; "you may not see this" and "this does not
+exist" are deliberately indistinguishable. If you want somewhere specific to
+land, return a redirect string instead.
+
+On a browser back/forward there *is* a route on screen, so nothing new
+renders: the router simply withholds the commit until the guard settles, and a
+refused move restores the address bar.
+
 ### `notFound()`
 
 Throw `notFound()` from inside a route component to signal a 404. It throws a sentinel caught by the router's internal boundary, which renders the `RouterView` fallback.
@@ -401,7 +424,7 @@ function MyComponent() {
 | Option | Type | Description |
 |---|---|---|
 | `replace` | `boolean` | Replace instead of push |
-| `state` | `Record<string, unknown>` | Attach state to the history entry |
+| `state` | `Record<string, unknown>` | Attach state to the history entry. The router merges its own `__mksRouterIndex` key into the same object to track back/forward; leave that key alone. |
 | `params` | `Record<string, string>` | Interpolate `:param` segments in `to` |
 
 ### `useLocation`

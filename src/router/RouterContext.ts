@@ -1,5 +1,5 @@
 import { buildPath, matchPath, pathnameOf } from "./matcher";
-import { HistoryStack } from "./history";
+import { HistoryStack, withHistoryIndex, readHistoryIndex } from "./history";
 import { normalizeBasePath, toInternal, toExternal } from "./basePath";
 import type {
   NavigateOptions,
@@ -19,6 +19,20 @@ export interface RouterState {
   meta: Record<string, unknown>;
   /** True while the address bar shows a workspace URL. */
   inWorkspace: boolean;
+  /**
+   * Verdict of the guard for the path the app was *launched* on.
+   *
+   * Only the initial match needs this. Every later navigation — including a
+   * browser back/forward — has a route already on screen, so the router simply
+   * withholds the commit while a guard settles and the previous route stays
+   * visible. On a cold load there is no previous route, so `RouterView` has to
+   * be told to render a loading state ("pending") or the not-found fallback
+   * ("blocked") instead of the route itself.
+   *
+   * Defaults to "resolved": a store whose `routeGuard` is never wired, or
+   * whose initial route is unguarded, behaves exactly as it did before.
+   */
+  initialGuard: "resolved" | "pending" | "blocked";
 }
 
 // ─── RouterStore ──────────────────────────────────────────────────────────────
@@ -80,7 +94,9 @@ export class RouterStore {
       canGoBack: false,
       meta: initialMeta,
       inWorkspace,
+      initialGuard: "resolved",
     };
+    this.historyStack.seed(this.state.path);
 
     this.handlePopState = this.handlePopState.bind(this);
     this.attach();
@@ -155,10 +171,16 @@ export class RouterStore {
 
     // Workspace URLs: update window.location but keep the router's path state unchanged.
     if (isWorkspace) {
+      // A workspace URL is a real browser entry, so it must carry an index or
+      // a later popstate would misread its position. It reuses the *current*
+      // index rather than advancing: spec §4.13 requires canGoBack to read the
+      // same before a workspace opens and after it closes, and the router's
+      // path is retained across both.
+      const wsState = withHistoryIndex(state, this.historyStack.currentIndex);
       if (replace) {
-        window.history.replaceState(state ?? null, "", this.toExternal(resolvedPath));
+        window.history.replaceState(wsState, "", this.toExternal(resolvedPath));
       } else {
-        window.history.pushState(state ?? null, "", this.toExternal(resolvedPath));
+        window.history.pushState(wsState, "", this.toExternal(resolvedPath));
       }
       // Don't update router path state — workspace URL is transparent to the
       // router. Only the inWorkspace flag flips.
@@ -202,6 +224,69 @@ export class RouterStore {
     this.commitNavigation(resolvedPath, replace, state, type, eventType);
   }
 
+  /**
+   * Runs the route guard against the path the store was constructed with.
+   *
+   * The constructor cannot do this itself: `routeGuard` is wired by
+   * AppProvider *after* `new RouterStore(...)` returns, so at construction
+   * time there is no guard to consult. AppProvider calls this synchronously
+   * once wiring is done — before `RouterView` first renders — so a guarded
+   * route never gets a frame on screen ahead of its verdict.
+   *
+   * Idempotent-ish by construction: AppProvider only initialises the store
+   * once, so this runs once per store.
+   */
+  evaluateInitialRoute(): void {
+    // Workspace URLs are transparent to the router — there is no route match
+    // to guard, and `state.path` holds the retained route, not the URL.
+    if (!this.routeGuard || this.state.inWorkspace) return;
+
+    let verdict: boolean | string | Promise<boolean | string>;
+    try {
+      verdict = this.routeGuard(this.state.path);
+    } catch {
+      this.setState({ initialGuard: "blocked" });
+      return;
+    }
+    this.settleInitialGuard(verdict);
+  }
+
+  /**
+   * Applies one initial-guard verdict. Recurses exactly once, through the
+   * promise arm — the resolved value is a boolean or a string, never another
+   * promise.
+   */
+  private settleInitialGuard(
+    verdict: boolean | string | Promise<boolean | string>,
+  ): void {
+    if (verdict === false) {
+      this.setState({ initialGuard: "blocked" });
+      return;
+    }
+
+    if (typeof verdict === "string") {
+      // Stay pending across the redirect. commitNavigation clears it in the
+      // same setState that installs the new path, so there is no frame where
+      // a resolved flag is paired with the pre-redirect route. If the target
+      // is itself blocked the app stays on the loading state — the safe
+      // failure mode for a guard cycle, and the misconfiguration is the app's.
+      this.setState({ initialGuard: "pending" });
+      this.navigate(verdict, { replace: true });
+      return;
+    }
+
+    if (verdict instanceof Promise) {
+      this.setState({ initialGuard: "pending" });
+      void verdict.then(
+        (v) => { this.settleInitialGuard(v); },
+        () => { this.setState({ initialGuard: "blocked" }); },
+      );
+      return;
+    }
+
+    this.setState({ initialGuard: "resolved" });
+  }
+
   private commitNavigation(
     resolvedPath: string,
     replace: boolean,
@@ -221,34 +306,56 @@ export class RouterStore {
     // bypassing the session stack entirely (spec §4.13) — canGoBack reflects
     // the same state it had before the workspace was opened.
     if (type === "workspace-close") {
-      window.history.replaceState(state ?? null, "", this.toExternal(resolvedPath));
+      // Relabels the entry in place — same index, same depth, so canGoBack is
+      // untouched (spec §4.13).
+      this.historyStack.replace(routePath);
+      window.history.replaceState(
+        withHistoryIndex(state, this.historyStack.currentIndex),
+        "",
+        this.toExternal(resolvedPath),
+      );
       this.previousPath = routePath;
       this.setState({
         path: routePath,
         searchParams: new URLSearchParams(window.location.search),
         canGoBack: this.historyStack.canGoBack,
         inWorkspace: false,
+        initialGuard: "resolved",
       });
       this.onNavigate?.({ from: prevPath, to: routePath, type });
       return;
     }
 
+    // The cursor moves first so the index stamped on the entry is the one this
+    // navigation lands on. Note the entry records the *destination* — the
+    // browser labels the entry you are on, not the one you came from.
     if (replace) {
-      window.history.replaceState(state ?? null, "", this.toExternal(resolvedPath));
-      this.historyStack.replace(this.state.path);
+      this.historyStack.replace(routePath);
+      window.history.replaceState(
+        withHistoryIndex(state, this.historyStack.currentIndex),
+        "",
+        this.toExternal(resolvedPath),
+      );
     } else {
-      this.historyStack.push(this.state.path);
-      window.history.pushState(state ?? null, "", this.toExternal(resolvedPath));
+      this.historyStack.push(routePath);
+      window.history.pushState(
+        withHistoryIndex(state, this.historyStack.currentIndex),
+        "",
+        this.toExternal(resolvedPath),
+      );
     }
 
     const newSearch = new URLSearchParams(window.location.search);
     this.previousPath = routePath;
 
+    // Reaching a commit means a guard let this navigation through, so whatever
+    // the initial match was waiting on no longer applies.
     this.setState({
       path: routePath,
       searchParams: newSearch,
       canGoBack: this.historyStack.canGoBack,
       inWorkspace: false,
+      initialGuard: "resolved",
     });
 
     this.onNavigate?.({ from: prevPath, to: routePath, type: eventType });
@@ -257,8 +364,9 @@ export class RouterStore {
   back(): void {
     if (!this.historyStack.canGoBack) return;
     if (this.onPrompt && !this.onPrompt("")) return;
-    const prev = this.historyStack.pop();
+    const prev = this.historyStack.peekBack();
     window.history.back();
+    this.historyStack.moveTo(this.historyStack.currentIndex - 1);
     if (prev !== undefined) {
       this.setState({
         path: prev,
@@ -346,27 +454,89 @@ export class RouterStore {
     //    workspace URL that was in the address bar.
     //  - query-only changes — the route stays mounted, so there is nothing to
     //    lose; the same rule `setSearchParams` already follows.
-    if (
-      this.onPrompt &&
-      !this.state.inWorkspace &&
-      internalPath !== this.state.path &&
-      !this.onPrompt("")
-    ) {
-      const search = this.state.searchParams.toString();
-      window.history.pushState(
-        null,
-        "",
-        this.toExternal(this.state.path) + (search ? `?${search}` : ""),
-      );
+    // A popstate that lands on the path already showing is not a route change:
+    // it is a query-only move, or the browser echoing our own back(). Neither
+    // re-prompts and neither re-guards — only the search params move.
+    const isRouteChange = !this.state.inWorkspace && internalPath !== this.state.path;
+
+    if (this.onPrompt && isRouteChange && !this.onPrompt("")) {
+      this.restoreCurrentUrl();
       return;
     }
 
+    // Route guard. Unlike the initial match, there *is* a route on screen
+    // here, so a pending verdict needs no render state: the commit is simply
+    // withheld and the current route stays visible, exactly as it does while
+    // an async guard runs during navigate().
+    if (this.routeGuard && isRouteChange) {
+      let verdict: boolean | string | Promise<boolean | string>;
+      try {
+        verdict = this.routeGuard(internalPath);
+      } catch {
+        this.restoreCurrentUrl();
+        return;
+      }
+
+      if (verdict === false) {
+        this.restoreCurrentUrl();
+        return;
+      }
+      if (typeof verdict === "string") {
+        this.redirectFromPopState(verdict);
+        return;
+      }
+      if (verdict instanceof Promise) {
+        void verdict.then(
+          (v) => {
+            if (v === false) { this.restoreCurrentUrl(); return; }
+            if (typeof v === "string") { this.redirectFromPopState(v); return; }
+            this.commitPopState();
+          },
+          () => { this.restoreCurrentUrl(); },
+        );
+        return;
+      }
+    }
+
+    this.commitPopState();
+  }
+
+  /** Adopts whatever the address bar currently holds as router state. */
+  private commitPopState(): void {
+    const loc = window.location;
+    // The arriving entry carries the position it was stamped with; an entry
+    // with none predates the router and reads as the start of the session.
+    this.historyStack.moveTo(readHistoryIndex() ?? 0);
     this.setState({
-      path: internalPath,
+      path: this.toInternal(loc.pathname),
       searchParams: new URLSearchParams(loc.search),
       canGoBack: this.historyStack.canGoBack,
       inWorkspace: false,
+      initialGuard: "resolved",
     });
+  }
+
+  /**
+   * Undoes a popstate the router refused. The event fires *after* the URL has
+   * moved, so the entry the user tried to leave is re-pushed — rebuilt from
+   * `state.path` + `state.searchParams`, which nothing has touched yet.
+   */
+  private restoreCurrentUrl(): void {
+    const search = this.state.searchParams.toString();
+    window.history.pushState(
+      withHistoryIndex(null, this.historyStack.currentIndex),
+      "",
+      this.toExternal(this.state.path) + (search ? `?${search}` : ""),
+    );
+  }
+
+  /**
+   * A guard redirected a popstate. The address bar is showing the path the
+   * guard rejected, so the redirect replaces it rather than pushing — leaving
+   * a rejected entry in the history would make back/forward oscillate.
+   */
+  private redirectFromPopState(to: string): void {
+    this.navigate(to, { replace: true });
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────────────

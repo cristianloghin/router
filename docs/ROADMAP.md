@@ -96,9 +96,9 @@ defineRoutes({
 exclusive.
 
 Second consumer: Planner needs `/` → `/day`, because the PWA's `start_url` is
-the bare base and every cold launch lands there. Note the interaction with
-**P1** — a `redirect` entry has to be honoured on the *initial* match, or it
-inherits the same hole guards have.
+the bare base and every cold launch lands there. P1 has shipped, so the
+initial match is now an evaluated step (`evaluateInitialRoute()`) rather than
+a hole — a `redirect` entry has to be honoured there too, alongside the guard.
 
 ### 5. Nesting inference at depth — verification, not a feature
 
@@ -128,46 +128,13 @@ specificity sorting; the depth × index × transition interplay is not).
 > gate) needs nothing below and ships against 0.8.0; each entry names the later
 > step it blocks.
 
-P1 and P3 share one root cause: **navigation the router did not initiate is
-second-class.** `navigate()` evaluates guards, honours the prompt and maintains
-the history stack; the initial page load and the browser's own back/forward
-still miss the first and the third. (P2, the prompt, shipped — `handlePopState`
-consults `onPrompt` and re-pushes on refusal.) Likely one change to
-`RouterStore` plus a render state in `RouterView`.
-
-### P1. Guards never run on initial load or popstate
-
-The constructor seeds state straight from `window.location`
-(`RouterContext.ts:70-83`) and `handlePopState` sets state directly (`:314`).
-`routeGuard` is consulted in exactly one place — `navigate()` (`:167`).
-
-A cold deep-link to a guarded route therefore renders it ungated, and so does
-back/forward into one. Every guard test navigates away from `/` first
-(`AppProvider.test.tsx:451+`), so the case is untested, not merely undocumented.
-
-Blocks: any route-level auth. Planner's route table has `/login` guarded with
-"redirect away when authenticated" and everything else behind a session; until
-this lands that has to stay an imperative gate mounted above the router.
-
-Design note — **this needs a pending render state.** Planner's session resolves
-asynchronously (Supabase `getSession()`), so an initial guard returns a promise
-and `RouterView` has nothing to show while it settles. Fallback resolution
-should follow the existing order (route `loading` → `defaultLoading` → null).
-Whether a *failed* initial guard renders the redirect target or nothing is part
-of the same decision.
-
-### P3. The history stack does not track browser back/forward
-
-`HistoryStack` (`history.ts`) is pushed and popped only by `navigate()`
-(`RouterContext.ts:225-229`) and `back()` (`:245`); `handlePopState` reads
-`canGoBack` without popping (`:314`).
-
-After a browser back, `canGoBack` over-reports, and a later programmatic
-`back()` pops a stale entry and sets `path` to a value that no longer matches
-the URL.
-
-Lower urgency for Planner — its shell has no back affordance today — but it
-grows one as soon as editors become routes, and Android back is always live.
+P4 is what is left of this group. P1 (guards on the initial match and on
+popstate) and P3 (the history cursor tracking browser back/forward) shipped
+together, closing the shared root cause: navigation the router did not
+initiate is no longer second-class — `handlePopState` now runs the prompt, the
+guard and the cursor, and `evaluateInitialRoute()` guards the launch route.
+See DEV.md for the invariants, including why the initial guard needs a render
+state and the later ones do not.
 
 ### P4. `useQueryState` types a missing param as present
 
@@ -357,14 +324,12 @@ job only.
    popstate prompt handling that shipped with P2.
 2. Named slots (A) — dissolves the walls section's worst contortion *during*
    its migration rather than porting the contortion.
-3. P1 + P3 — one opening of the popstate / initial-match path; P1 unblocks
-   route-level auth for Planner.
-4. Redirects (4) + route meta (3) — small parity wins, do together. Redirects
-   want P1 landed first.
-5. Outlet context (2) — small; decide the shape first.
-6. P4 (`useQueryState` optionality) — independent of everything else; do when
+3. Redirects (4) + route meta (3) — small parity wins, do together.
+   Redirects hook into the initial-match evaluation P1 added.
+4. Outlet context (2) — small; decide the shape first.
+5. P4 (`useQueryState` optionality) — independent of everything else; do when
    Planner puts dates in the URL.
-7. Scoped modules (B), priming (C), view transitions (D) — pay off as more
+6. Scoped modules (B), priming (C), view transitions (D) — pay off as more
    sections adopt; none block anything.
 
 Security items are order-independent of the above and individually small;

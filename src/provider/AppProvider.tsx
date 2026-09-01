@@ -254,6 +254,13 @@ export function AppProvider<
 
       return runFrom(0);
     };
+
+    // Guard the route the app was launched on (spec §2.1). This has to run
+    // here rather than in the RouterStore constructor, which completes before
+    // `routeGuard` above exists — and synchronously within this block, so the
+    // verdict is in place before RouterView first renders and a guarded route
+    // never flashes on screen ungated.
+    storeRef.current.evaluateInitialRoute();
   }
 
   // Wire lifecycle hooks on every render (latest callback)
