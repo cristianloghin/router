@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchPath, buildPath, specificity } from "./matcher";
+import { matchPath, buildPath, specificity, pathnameOf } from "./matcher";
 
 // ─── matchPath — static paths ─────────────────────────────────────────────────
 
@@ -121,5 +121,37 @@ describe("specificity", () => {
 
   it("one parametric segment beats a root wildcard", () => {
     expect(specificity("/:any")).toBeGreaterThan(specificity("/*"));
+  });
+});
+
+// ─── pathnameOf ───────────────────────────────────────────────────────────────
+
+describe("pathnameOf", () => {
+  it("passes a plain path through unchanged", () => {
+    expect(pathnameOf("/editor")).toBe("/editor");
+    expect(pathnameOf("/")).toBe("/");
+  });
+
+  it("drops a query string", () => {
+    expect(pathnameOf("/editor?draft=7")).toBe("/editor");
+    expect(pathnameOf("/search?q=a&q=b")).toBe("/search");
+  });
+
+  it("drops a fragment", () => {
+    expect(pathnameOf("/docs#install")).toBe("/docs");
+  });
+
+  it("cuts at whichever comes first", () => {
+    expect(pathnameOf("/docs?v=2#install")).toBe("/docs");
+    expect(pathnameOf("/docs#install?v=2")).toBe("/docs");
+  });
+
+  it("handles an empty query and an empty fragment", () => {
+    expect(pathnameOf("/editor?")).toBe("/editor");
+    expect(pathnameOf("/editor#")).toBe("/editor");
+  });
+
+  it("leaves a ? inside an already-encoded segment alone", () => {
+    expect(pathnameOf("/notes/what%3F")).toBe("/notes/what%3F");
   });
 });

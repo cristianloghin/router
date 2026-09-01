@@ -159,6 +159,28 @@ describe("basePath: RouterStore writes", () => {
     expect(reloaded.getSnapshot().path).toBe("/day");
     reloaded.destroy();
   });
+
+  it("composes the base with a query string on the target", () => {
+    const store = new RouterStore({}, "/workspace", BASE);
+    act(() => store.navigate("/day?date=2026-09-01"));
+    expect(window.location.pathname).toBe(`${BASE}/day`);
+    expect(window.location.search).toBe("?date=2026-09-01");
+    // state.path stays internal *and* query-free — the base is prepended to the
+    // pathname only, never to or around the query.
+    expect(store.getSnapshot().path).toBe("/day");
+    expect(store.getSnapshot().searchParams.get("date")).toBe("2026-09-01");
+    store.destroy();
+  });
+
+  it("round-trips a query-bearing URL through a reload", () => {
+    const store = new RouterStore({}, "/workspace", BASE);
+    act(() => store.navigate("/day?date=2026-09-01"));
+    store.destroy();
+    const reloaded = new RouterStore({}, "/workspace", BASE);
+    expect(reloaded.getSnapshot().path).toBe("/day");
+    expect(reloaded.getSnapshot().searchParams.get("date")).toBe("2026-09-01");
+    reloaded.destroy();
+  });
 });
 
 // ─── Ordering: strip the app base, then test the workspace prefix ─────────────

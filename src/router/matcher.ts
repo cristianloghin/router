@@ -61,6 +61,26 @@ export function matchPath(
   return { matched: true, params };
 }
 
+// ─── pathnameOf ───────────────────────────────────────────────────────────────
+
+/**
+ * The pathname half of a navigation target — what `RouterState.path` holds and
+ * what every matcher consumes.
+ *
+ * "/editor"          → "/editor"
+ * "/editor?draft=7"  → "/editor"
+ * "/editor#top"      → "/editor"
+ *
+ * The query and fragment are deliberately not returned. The store reads the
+ * query back off the address bar once the target has been pushed, and the
+ * router does not track fragments at all; both survive in the URL because the
+ * *full* target string is what gets pushed, not this pathname.
+ */
+export function pathnameOf(to: string): string {
+  const cut = to.search(/[?#]/);
+  return cut === -1 ? to : to.slice(0, cut);
+}
+
 // ─── buildPath ────────────────────────────────────────────────────────────────
 
 export function buildPath(pattern: string, params: Record<string, string>): string {

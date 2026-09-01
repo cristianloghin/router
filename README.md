@@ -482,6 +482,11 @@ function SearchResults() {
 }
 ```
 
+`setSearchParams` *replaces* the current history entry, so it changes the query
+without adding a back step — it is for mutating the query of the route you are
+already on. To land on a different route with a query already set, put it on
+the navigation target instead: `navigate("/search?q=router")`.
+
 ### `useQueryState`
 
 Typed, serialized URL query state. Handles `string`, `number`, `boolean`, `string[]`, and `number[]`.
@@ -542,6 +547,15 @@ function EditForm() {
 }
 ```
 
+Covers all four ways out of a route: `navigate()`, `back()`, page unload, and
+the browser's own back/forward — which in an installed PWA means Android
+hardware back and iOS edge-swipe. Declining a browser back leaves you on the
+current route with the address bar restored.
+
+Two things deliberately do *not* prompt: query-string changes on the current
+route (the route stays mounted, so there is nothing to lose), and workspace
+navigation, which is prompt-exempt throughout.
+
 ---
 
 ## Imperative navigation
@@ -554,9 +568,17 @@ import { navigate } from "@mikrostack/router";
 // Navigates using the active AppProvider's router store
 navigate("/login", { replace: true });
 navigate("/users/:id", { params: { id: "42" } });
+navigate("/search?q=router");                      // query string on the target
+navigate("/camera/:id?live=1", { params: { id: "42" } });
 ```
 
 > `navigate` is a no-op until an `AppProvider` has mounted.
+
+A query string on the target lands in the address bar and in
+`useSearchParams()`/`useQueryState()`; the route still matches on the pathname
+alone, so `useLocation().path` reads `/search`, not `/search?q=router`. The
+same applies to `<Link to="/search?q=router">` — its `href` carries the query,
+while its active state is decided by the pathname.
 
 ---
 

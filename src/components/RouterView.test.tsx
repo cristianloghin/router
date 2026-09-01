@@ -233,3 +233,54 @@ describe("RouterView: workspace URL passthrough", () => {
     store.destroy();
   });
 });
+
+// ─── Query strings on the target ──────────────────────────────────────────────
+
+/**
+ * The original defect: `navigate("/settings?tab=1")` stored the whole string as
+ * `RouterState.path`, which matched no route and fell through to not-found.
+ */
+describe("RouterView: routes with a query string", () => {
+  function renderAt(initialPath: string) {
+    window.history.replaceState(null, "", initialPath);
+    const store = new RouterStore({});
+    const registry = new RouteRegistry(routes);
+    render(
+      <RouterStoreContext.Provider value={store}>
+        <RouteRegistryContext.Provider value={registry}>
+          <RouterView fallback={NotFoundRoute} />
+        </RouteRegistryContext.Provider>
+      </RouterStoreContext.Provider>,
+    );
+    return store;
+  }
+
+  it("renders the matched route when navigating with a query", () => {
+    const store = renderAt("/");
+    act(() => { store.navigate("/settings?tab=general"); });
+    // Settings is the only route that renders the outlet testid.
+    expect(screen.getByTestId("outlet")).toBeInTheDocument();
+    expect(screen.getByText("SettingsIndex")).toBeInTheDocument();
+    store.destroy();
+  });
+
+  it("renders a parametric route when navigating with a query", () => {
+    const store = renderAt("/");
+    act(() => { store.navigate("/camera/42?live=1"); });
+    expect(screen.getByText("Camera:42")).toBeInTheDocument();
+    store.destroy();
+  });
+
+  it("renders the matched route on a cold load with a query", () => {
+    const store = renderAt("/settings?tab=general");
+    expect(screen.getByTestId("outlet")).toBeInTheDocument();
+    store.destroy();
+  });
+
+  it("still falls through to notFound for a genuinely unknown path", () => {
+    const store = renderAt("/");
+    act(() => { store.navigate("/nope?tab=general"); });
+    expect(screen.getByText("404:/nope")).toBeInTheDocument();
+    store.destroy();
+  });
+});

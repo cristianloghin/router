@@ -115,10 +115,37 @@ Module ownership:
   echoes the address bar's own path back to clear the query string —
   rewriting it to `toExternal(state.path)` would clobber the bar off a
   workspace, since `state.path` holds the retained *route* path there.
+- **`RouterState.path` is a pathname — never a query or a fragment.** It is
+  what `RouterView`, `useRoute`, `getMatchChain` and every guard match on, so
+  a query smuggled into it matches no route at all. `navigate()` therefore
+  splits its target once, up front: `resolvedPath` (whole) is what reaches
+  `pushState`, `routePath = pathnameOf(resolvedPath)` is what reaches the
+  workspace test, the guard, `NavigationEvent.to`, `previousPath`, the
+  `HistoryStack` and `state.path`. `commitNavigation` re-derives the same
+  split, so both entry points agree. The other three writers of `path` — the
+  constructor, `handlePopState` and `back()` — are pathname-clean by
+  construction (`window.location.pathname`, or a stack entry that was).
+  `state.searchParams` is read back off the address bar *after* the push
+  rather than from the split, because `pushState` applies synchronously and
+  the bar is then authoritative whether the query arrived on the target or was
+  already there. `Link` splits too, but only for active-state matching — its
+  `href` and its `store.navigate()` call both keep the query.
 - **`Link` carries both forms of one path** — the anchor's `href` is external
   (middle-click, "copy link address" and hover preview read a real URL), the
   `store.navigate()` call on click is internal. Translating once and reusing
   it double-applies the base.
+- **Every exit from a route consults `onPrompt`** — `navigate()` (`:134`),
+  `back()` (`:248`) and `handlePopState` (`:344`). The popstate arm is the
+  awkward one: the event fires *after* the URL has moved, so a refusal is
+  undone by re-pushing the entry the user tried to leave, rebuilt from
+  `state.path` + `state.searchParams` (nothing has mutated them yet). Two
+  exemptions are deliberate, not oversights — leaving a workspace URL
+  (workspace navigation is prompt-exempt everywhere, and `state.path` holds
+  the retained *route* path there, not what was in the address bar), and
+  query-only changes, matching `setSearchParams` (both sides of that
+  comparison are pathnames — see the invariant below).
+  `back()` does not double-prompt: it sets `state.path` synchronously, so the
+  browser's echoing popstate sees an unchanged path and falls through.
 - **`RouterStore` lives in a ref but is destroyed in an effect cleanup** — so
   `destroy()` must stay reversible (`attach()` re-registers popstate) or
   StrictMode's simulated unmount permanently deafens the router. Regression

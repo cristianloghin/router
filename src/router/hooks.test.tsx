@@ -364,3 +364,116 @@ describe("usePrompt: back() interception", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 });
+
+// ─── usePrompt: popstate interception ────────────────────────────────────────
+
+/**
+ * The browser's own back/forward. Simulated the way the browser does it: the
+ * URL has already moved by the time popstate is dispatched.
+ */
+function popTo(url: string) {
+  window.history.replaceState(null, "", url);
+  act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+}
+
+describe("usePrompt: popstate interception", () => {
+  it("blocks browser back when confirm returns false", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/");
+
+    expect(store.getSnapshot().path).toBe("/editor");
+    vi.restoreAllMocks();
+  });
+
+  it("restores the address bar to the entry the user tried to leave", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+    act(() => { store.setSearchParams(new URLSearchParams("draft=7")); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/");
+
+    expect(window.location.pathname).toBe("/editor");
+    expect(window.location.search).toBe("?draft=7");
+    vi.restoreAllMocks();
+  });
+
+  it("allows browser back when confirm returns true", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    act(() => { store.navigate("/editor"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/");
+
+    expect(store.getSnapshot().path).toBe("/");
+    vi.restoreAllMocks();
+  });
+
+  it("calls confirm with the provided message", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    act(() => { store.navigate("/editor"); });
+    renderHook(() => usePrompt("You have unsaved changes.", true), { wrapper: makeWrapper(store) });
+
+    popTo("/");
+
+    expect(confirmSpy).toHaveBeenCalledWith("You have unsaved changes.");
+    vi.restoreAllMocks();
+  });
+
+  it("does not prompt when no usePrompt is mounted", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+
+    popTo("/");
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(store.getSnapshot().path).toBe("/");
+    vi.restoreAllMocks();
+  });
+
+  it("does not prompt on a query-only popstate — the route stays mounted", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+    act(() => { store.setSearchParams(new URLSearchParams("tab=2")); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/editor?tab=1");
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(store.getSnapshot().searchParams.get("tab")).toBe("1");
+    vi.restoreAllMocks();
+  });
+
+  it("does not prompt when leaving a workspace URL — workspace nav is exempt", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => { store.navigate("/editor"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    popTo("/workspace/cam/ws-1");          // into the workspace — already exempt
+    expect(store.getSnapshot().inWorkspace).toBe(true);
+    popTo("/");                            // back out of it
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(store.getSnapshot().path).toBe("/");
+    vi.restoreAllMocks();
+  });
+
+  it("does not double-prompt when back() drives the popstate itself", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    // Real window.history.back() is async; drive the resulting popstate by hand.
+    vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { result: navResult } = renderHook(() => useNavigation(), { wrapper: makeWrapper(store) });
+    act(() => { navResult.current.navigate("/editor"); });
+    renderHook(() => usePrompt("Leave?", true), { wrapper: makeWrapper(store) });
+
+    act(() => { navResult.current.back(); });   // prompts once, sets path to "/"
+    popTo("/");                                 // the browser's echo
+
+    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(store.getSnapshot().path).toBe("/");
+    vi.restoreAllMocks();
+  });
+});

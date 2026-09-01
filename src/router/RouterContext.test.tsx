@@ -205,3 +205,105 @@ describe("RouterStore: popstate onto a workspace URL", () => {
     store.destroy();
   });
 });
+
+// ─── navigate() with a query string ──────────────────────────────────────────
+
+/**
+ * `RouterState.path` is pathname-only: it is what RouterView and useRoute match
+ * against, so a query riding along on the target must land in `searchParams`
+ * and the address bar, never in `path`.
+ */
+describe("RouterStore: navigate with a query string", () => {
+  let store: RouterStore;
+
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/");
+    store = makeStore();
+  });
+
+  it("keeps path free of the query", () => {
+    act(() => { store.navigate("/editor?draft=7"); });
+    expect(store.getSnapshot().path).toBe("/editor");
+    store.destroy();
+  });
+
+  it("puts the query on searchParams", () => {
+    act(() => { store.navigate("/editor?draft=7&mode=edit"); });
+    const sp = store.getSnapshot().searchParams;
+    expect(sp.get("draft")).toBe("7");
+    expect(sp.get("mode")).toBe("edit");
+    store.destroy();
+  });
+
+  it("writes the full URL to the address bar", () => {
+    act(() => { store.navigate("/editor?draft=7"); });
+    expect(window.location.pathname).toBe("/editor");
+    expect(window.location.search).toBe("?draft=7");
+    store.destroy();
+  });
+
+  it("clears the query when navigating on to a bare path", () => {
+    act(() => { store.navigate("/editor?draft=7"); });
+    act(() => { store.navigate("/settings"); });
+    expect(store.getSnapshot().path).toBe("/settings");
+    expect(store.getSnapshot().searchParams.toString()).toBe("");
+    expect(window.location.search).toBe("");
+    store.destroy();
+  });
+
+  it("pushes the query-free path onto the history stack", () => {
+    act(() => { store.navigate("/editor?draft=7"); });
+    act(() => { store.navigate("/settings"); });
+    act(() => { store.back(); });
+    expect(store.getSnapshot().path).toBe("/editor");
+    store.destroy();
+  });
+
+  it("interpolates params and keeps the query", () => {
+    act(() => { store.navigate("/camera/:id?live=1", { params: { id: "42" } }); });
+    expect(store.getSnapshot().path).toBe("/camera/42");
+    expect(store.getSnapshot().searchParams.get("live")).toBe("1");
+    expect(window.location.pathname).toBe("/camera/42");
+    store.destroy();
+  });
+
+  it("works under replace", () => {
+    act(() => { store.navigate("/editor?draft=7", { replace: true }); });
+    expect(store.getSnapshot().path).toBe("/editor");
+    expect(window.location.search).toBe("?draft=7");
+    store.destroy();
+  });
+
+  it("strips a fragment from path but leaves it in the URL", () => {
+    act(() => { store.navigate("/docs#install"); });
+    expect(store.getSnapshot().path).toBe("/docs");
+    expect(window.location.hash).toBe("#install");
+    store.destroy();
+  });
+
+  it("reports the query-free path on NavigationEvent.to", () => {
+    const seen: string[] = [];
+    store.onNavigate = ({ to }) => { seen.push(to); };
+    act(() => { store.navigate("/editor?draft=7"); });
+    expect(seen).toEqual(["/editor"]);
+    store.destroy();
+  });
+
+  it("hands the query-free path to the route guard", () => {
+    const seen: string[] = [];
+    store.routeGuard = (path) => { seen.push(path); return true; };
+    act(() => { store.navigate("/editor?draft=7"); });
+    expect(seen).toEqual(["/editor"]);
+    expect(store.getSnapshot().path).toBe("/editor");
+    store.destroy();
+  });
+
+  it("still detects a workspace target that carries a query", () => {
+    act(() => { store.navigate("/settings"); });
+    act(() => { store.navigate("/workspace/cam/ws-1?title=Test"); });
+    // Workspace URLs are transparent: the route path is retained.
+    expect(store.getSnapshot().path).toBe("/settings");
+    expect(store.getSnapshot().inWorkspace).toBe(true);
+    store.destroy();
+  });
+});

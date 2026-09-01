@@ -261,3 +261,38 @@ function PathProbe({ onPath }: { onPath: (path: string) => void }) {
   onPath(path);
   return null;
 }
+
+// ─── Query strings on `to` ────────────────────────────────────────────────────
+
+describe("Link: query strings on `to`", () => {
+  it("keeps the query in the href", () => {
+    render(
+      <Link to="/settings?tab=general">Settings</Link>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    expect(screen.getByRole("link", { name: "Settings" }))
+      .toHaveAttribute("href", "/settings?tab=general");
+  });
+
+  it("matches active state on the pathname, not the whole target", () => {
+    render(
+      <Link to="/settings?tab=general" activeClassName="active">Settings</Link>,
+      { wrapper: ({ children }) => <Wrapper path="/settings">{children}</Wrapper> },
+    );
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveClass("active");
+  });
+
+  it("navigates to the query-bearing target on click", async () => {
+    const user = userEvent.setup();
+    function Probe() {
+      const { path, searchParams } = useLocation();
+      return <span data-testid="loc">{path}|{searchParams.toString()}</span>;
+    }
+    render(
+      <><Link to="/settings?tab=general">Settings</Link><Probe /></>,
+      { wrapper: ({ children }) => <Wrapper path="/">{children}</Wrapper> },
+    );
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    expect(screen.getByTestId("loc")).toHaveTextContent("/settings|tab=general");
+  });
+});

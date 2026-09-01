@@ -1,7 +1,7 @@
 import React from "react";
 import { useRouterStore } from "../router/context";
 import { useSyncExternalStore } from "react";
-import { matchPath, buildPath } from "../router/matcher";
+import { matchPath, buildPath, pathnameOf } from "../router/matcher";
 import type { LinkParamsProp, RoutePath } from "../router/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -82,10 +82,13 @@ export function Link<TPath extends RoutePath = RoutePath>(
   const path = buildPath(to, params);
   const href = store.toExternal(path);
 
-  // Determine active state
-  const { matched } = matchPath(to, currentPath);
+  // Determine active state. `currentPath` is pathname-only, so a `to` carrying
+  // a query ("/search?q=x") has to shed it before matching — the query is part
+  // of the destination, not part of which route is active.
+  const toPathname = pathnameOf(to);
+  const { matched } = matchPath(toPathname, currentPath);
   // Ancestor match: current path starts with this route (at segment boundary)
-  const isAncestor = !matched && isSegmentAncestor(to, currentPath);
+  const isAncestor = !matched && isSegmentAncestor(toPathname, currentPath);
   const isActive = matched || isAncestor;
   const isExact = matched;
 
