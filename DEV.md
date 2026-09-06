@@ -201,6 +201,15 @@ Module ownership:
   `hasRenderedRouteRef` gates the handover — before the first route renders,
   `path` is `storePath`; after, it is the mirror. Regression test:
   "redirects without ever showing the guarded route".
+- **Route hooks read the rendered path, not the store's.** Corollary of the
+  mirror: while a transition is pending the store already holds the next URL
+  and the previous route is still on screen. `useRoute`/`useParams` inside a
+  view therefore match against `RenderedPathContext` (the view's `path`),
+  falling back to the store only outside any view (a nav bar wants the URL).
+  Without this a mounted route asked for its own params mid-transition and got
+  `{}` — and a route that then threw took the view down with it. Regression
+  test: "keeps the previous route's params while the next route is still
+  loading".
 - **`HistoryStack` is entries + a cursor, not a push/pop stack** — the
   browser's back and forward move a cursor, and a stack can only be walked one
   way (roadmap P3). `entries[index]` is the path showing now, so `push`

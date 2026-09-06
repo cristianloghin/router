@@ -494,6 +494,12 @@ function UserDetail() {
 }
 ```
 
+Inside a `RouterView`, `useRoute` and `useParams` describe the route being
+*rendered*. Route changes commit through a transition, so while a new route
+loads the previous one is still on screen and the URL has already moved on; a
+mounted route keeps seeing its own params throughout. Outside a view — a nav
+bar, a breadcrumb — they follow the URL, the same as `useLocation().path`.
+
 ### `useSearchParams`
 
 Returns the current `URLSearchParams` and a setter (tuple), re-rendering on changes.
