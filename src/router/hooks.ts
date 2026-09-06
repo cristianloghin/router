@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import { useRouterStore } from "./context";
+import { useCallback, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
+import { RenderedPathContext, useRouterStore } from "./context";
 import { matchPath } from "./matcher";
 import type {
   ExtractParams,
@@ -84,8 +84,15 @@ export function useRoute<TPath extends RoutePath>(
     () => store.getSnapshot(),
   );
 
+  // Inside a RouterView, match against the path it is rendering. The store
+  // moves to the next URL as soon as navigation commits, but the view keeps
+  // the previous route on screen through the transition — and that route's
+  // hooks must keep describing it, or `useParams` returns `{}` to a component
+  // that is still rendering its page.
+  const renderedPath = useContext(RenderedPathContext);
+
   return useMemo(() => {
-    const currentPath = snapshot.path;
+    const currentPath = renderedPath ?? snapshot.path;
 
     // Exact match
     const { matched, params } = matchPath(path, currentPath);
@@ -112,7 +119,7 @@ export function useRoute<TPath extends RoutePath>(
 
     return { matched: false, params: {} as ExtractParams<TPath>, exact: false };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, snapshot.path]);
+  }, [path, renderedPath, snapshot.path]);
 }
 
 function segmentCount(pattern: string): number {

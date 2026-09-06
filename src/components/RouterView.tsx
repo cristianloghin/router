@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useTransition } from "react";
 import { useSyncExternalStore } from "react";
-import { useRouterStore } from "../router/context";
+import { RenderedPathContext, useRouterStore } from "../router/context";
 import { useRouteRegistry } from "../router/registryContext";
 import { useAppConfig } from "../provider/context";
 import { matchPathPrefix } from "../router/matcher";
@@ -209,9 +209,12 @@ export function RouterView({
     );
   }
 
+  // Routes read their params against the path being rendered (see
+  // RenderedPathContext): during a transition that is the mirror, not the
+  // store, and a route must describe the page it is on screen for.
   return (
     <div ref={containerRef} tabIndex={-1} style={{ outline: "none" }}>
-      {outlet}
+      <RenderedPathContext.Provider value={path}>{outlet}</RenderedPathContext.Provider>
     </div>
   );
 }

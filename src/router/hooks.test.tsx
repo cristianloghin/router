@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import React from "react";
 import { RouterStore } from "./RouterContext";
-import { RouterStoreContext } from "./context";
+import { RenderedPathContext, RouterStoreContext } from "./context";
 import {
   useNavigation,
   useLocation,
@@ -147,6 +147,27 @@ describe("useParams", () => {
   it("returns empty object when route does not match", () => {
     const { result } = renderHook(() => useParams("/camera/:id"), { wrapper: makeWrapper(store) });
     expect(result.current).toEqual({});
+  });
+
+  it("inside a RouterView, reads the rendered path rather than the store's", () => {
+    // The store has already moved on (a transition is mid-flight); the view
+    // is still rendering the camera route, and so must its hooks.
+    act(() => { store.navigate("/other"); });
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(
+        RouterStoreContext.Provider,
+        { value: store },
+        React.createElement(RenderedPathContext.Provider, { value: "/camera/cam-4" }, children),
+      );
+    const { result } = renderHook(() => useRoute("/camera/:id"), { wrapper });
+    expect(result.current).toEqual({ matched: true, exact: true, params: { id: "cam-4" } });
+  });
+
+  it("outside a RouterView, still follows the store", () => {
+    act(() => { store.navigate("/camera/cam-4"); });
+    const { result } = renderHook(() => useParams("/camera/:id"), { wrapper: makeWrapper(store) });
+    act(() => { store.navigate("/camera/cam-5"); });
+    expect(result.current).toEqual({ id: "cam-5" });
   });
 });
 

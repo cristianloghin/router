@@ -9,6 +9,7 @@ import { RouterStoreContext } from "../router/context";
 import { RouteRegistryContext } from "../router/registryContext";
 import { RouteRegistry } from "../router/RouteRegistry";
 import { notFound } from "../utils/notFound";
+import { useParams } from "../router/hooks";
 
 // ─── Stub components ──────────────────────────────────────────────────────────
 
@@ -25,6 +26,15 @@ const Security: React.ComponentType<any> = ({ outlet }) => <div>Security{outlet}
 const SettingsIndex = () => <div>SettingsIndex</div>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const CameraDetail: React.ComponentType<any> = ({ params }) => <div>Camera:{params.id}</div>;
+// Reads its params through the hook rather than the prop.
+const CameraByHook = () => {
+  const { id } = useParams("/hooked/:id");
+  if (id === undefined) throw new Error("useParams lost the rendered route's params");
+  return <div>Hooked:{id}</div>;
+};
+// A lazy route that never resolves: the previous route stays on screen for
+// as long as the test wants.
+const NeverLoads = lazy(() => new Promise<{ default: React.ComponentType }>(() => {}));
 const NotFoundRoute = ({ path }: { path: string }) => <div>404:{path}</div>;
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -35,6 +45,8 @@ const routes = defineRoutes({
   "/settings/profile":  { component: Profile },
   "/settings/security": { component: Security },
   "/camera/:id":        { component: CameraDetail },
+  "/hooked/:id":        { component: CameraByHook },
+  "/slow":              { component: NeverLoads },
 });
 
 function Wrapper({ path, children }: { path: string; children: React.ReactNode }) {
@@ -114,6 +126,43 @@ describe("RouterView: parametric routes", () => {
       { wrapper: ({ children }) => <Wrapper path="/camera/cam-7">{children}</Wrapper> },
     );
     expect(screen.getByText("Camera:cam-7")).toBeInTheDocument();
+  });
+});
+
+describe("RouterView: params through useParams", () => {
+  it("a route reading useParams sees its own params", () => {
+    render(
+      <RouterView />,
+      { wrapper: ({ children }) => <Wrapper path="/hooked/cam-1">{children}</Wrapper> },
+    );
+    expect(screen.getByText("Hooked:cam-1")).toBeInTheDocument();
+  });
+
+  it("follows the params when the same route is navigated to a new value", () => {
+    let store!: RouterStore;
+    const Grab = () => { store = React.useContext(RouterStoreContext)!; return null; };
+    render(
+      <><Grab /><RouterView /></>,
+      { wrapper: ({ children }) => <Wrapper path="/hooked/cam-1">{children}</Wrapper> },
+    );
+    act(() => { store.navigate("/hooked/cam-2"); });
+    return waitFor(() => expect(screen.getByText("Hooked:cam-2")).toBeInTheDocument());
+  });
+
+  it("keeps the previous route's params while the next route is still loading", async () => {
+    // Regression: the store already holds /slow, but the camera route is still
+    // on screen through the transition — its useParams must not come back empty.
+    let store!: RouterStore;
+    const Grab = () => { store = React.useContext(RouterStoreContext)!; return null; };
+    render(
+      <><Grab /><RouterView /></>,
+      { wrapper: ({ children }) => <Wrapper path="/hooked/cam-1">{children}</Wrapper> },
+    );
+    act(() => { store.navigate("/slow"); });
+    // Give the transition every chance to try and commit.
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(store.getSnapshot().path).toBe("/slow");
+    expect(screen.getByText("Hooked:cam-1")).toBeInTheDocument();
   });
 });
 
